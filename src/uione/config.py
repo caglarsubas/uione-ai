@@ -67,6 +67,15 @@ class Settings(BaseSettings):
     def internal_domain_set(self) -> frozenset[str]:
         return frozenset(d.strip().lower() for d in self.internal_domains.split(",") if d.strip())
 
+    #: Project key prefixes that denote work items, e.g. "PAY,OPS". Known
+    #: prefixes are how the work graph stays precise: a generic ABC-123 pattern
+    #: also matches ISO-9001 and would manufacture links from it.
+    ticket_prefixes: str = ""
+
+    @property
+    def ticket_prefix_set(self) -> frozenset[str]:
+        return frozenset(p.strip().upper() for p in self.ticket_prefixes.split(",") if p.strip())
+
     @property
     def mail_configured(self) -> bool:
         return bool(self.mail_imap_host and self.mail_username)

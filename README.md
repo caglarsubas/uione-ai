@@ -37,13 +37,15 @@ python scripts/demo_brief.py --model ministral-3:8b
 |---|---|
 | Model plane client, task-tier routing, escalation | `src/uione/modelplane/` |
 | Governed MCP gateway: deny-by-default policy, audit tap, rate limits, circuit breaking | `src/uione/mcphub/` |
+| Real IMAP/SMTP mail connector | `src/uione/connectors/mail/` |
 | Agent loop with tool-call repair and name resolution | `src/uione/agent/` |
 | Graduated autonomy, approvals, undo journal, injection containment | `src/uione/governance/` |
-| Morning Brief with provenance and honest degradation | `src/uione/proactive/` |
+| Work graph: deterministic cross-system entity resolution | `src/uione/knowledge/` |
+| Morning Brief with provenance, links and honest degradation | `src/uione/proactive/` |
 | HTTP API: chat, brief, approval queue, transparency page | `src/uione/api/` |
 
-Connectors are currently fixtures (`src/uione/connectors/demo.py`) covering mail,
-calendar, tasks and incidents. Real Wave-1 connectors are next.
+Mail is a real IMAP/SMTP connector (configure `UIONE_MAIL_IMAP_HOST`, otherwise a
+fixture is used). Calendar, tasks and incidents remain fixtures.
 
 ## Documents
 
@@ -52,6 +54,8 @@ calendar, tasks and incidents. Real Wave-1 connectors are next.
 - [Security model](docs/SECURITY_MODEL.md) — prompt injection, the lethal trifecta, the seven layers, and the known limits.
 - [Model trials](docs/MODEL_TRIALS.md) — measured tool-calling reliability across eight open-weight models.
 - [Morning Brief](docs/MORNING_BRIEF.md) — implementation notes, observed output, and two honest defects.
+- [Work graph](docs/WORK_GRAPH.md) — deterministic cross-system entity resolution, and why v1 avoids fuzzy matching.
+- [Connectors](docs/CONNECTORS.md) — the mail connector, and what every connector must declare.
 
 ## Status
 

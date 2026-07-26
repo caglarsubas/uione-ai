@@ -192,3 +192,73 @@ async def test_permissions_apply_to_the_brief() -> None:
     brief = await BriefGenerator(model=StubModel(), gateway=gateway).generate(ALICE)
 
     assert [s.section for s in brief.sections if s.ok] == ["calendar"]
+
+
+# -- work graph integration ------------------------------------------------
+
+
+async def test_cross_system_links_reach_the_prompt() -> None:
+    """The join the model previously had to notice by luck is now given to it."""
+    from uione.knowledge import ExtractionRules
+
+    model = StubModel()
+    gateway = await build_gateway()
+    generator = BriefGenerator(
+        model=model,
+        gateway=gateway,
+        extraction_rules=ExtractionRules(
+            ticket_prefixes=frozenset({"PAY"}),
+            incident_prefixes=frozenset({"INC"}),
+            reference_prefixes=frozenset({"INV"}),
+        ),
+    )
+
+    brief = await generator.generate(ALICE)
+
+    prompt = model.prompts[0]
+    assert "CONNECTIONS" in prompt
+    assert "INC-4471" in brief.connections
+    assert "INV-88213" in brief.connections
+
+
+async def test_connections_are_absent_when_nothing_links() -> None:
+    """No spurious connections block when the systems share nothing."""
+    from uione.knowledge import ExtractionRules
+
+    model = StubModel()
+    gateway = await build_gateway()
+    generator = BriefGenerator(
+        model=model,
+        gateway=gateway,
+        # Every prefix set cleared, so nothing is recognised as an identifier.
+        # INC/INV are defaults because those conventions are near-universal.
+        extraction_rules=ExtractionRules(
+            ticket_prefixes=frozenset(),
+            incident_prefixes=frozenset(),
+            reference_prefixes=frozenset(),
+            extract_people=False,
+        ),
+    )
+
+    brief = await generator.generate(ALICE)
+
+    assert brief.connections == []
+    assert "CONNECTIONS" not in model.prompts[0]
+
+
+async def test_unavailable_sections_are_not_indexed() -> None:
+    """A failed section has no content; it must not appear as a phantom link."""
+    from uione.knowledge import ExtractionRules
+
+    gateway = await build_gateway(failing={"incidents"})
+    generator = BriefGenerator(
+        model=StubModel(),
+        gateway=gateway,
+        extraction_rules=ExtractionRules(incident_prefixes=frozenset({"INC"})),
+    )
+
+    brief = await generator.generate(ALICE)
+
+    # INC-4471 still appears via the alert email, but the incidents section
+    # itself contributed nothing.
+    assert "incidents" not in brief.provenance
