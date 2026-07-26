@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UiOne</title>
+  <link rel="stylesheet" href="/ui/styles.css">
+</head>
+<body>
+<div class="app">
+  <nav class="sidebar">
+    <div class="brand"><span class="dot" id="health-dot"></span> UiOne</div>
+
+    <button class="nav-btn" data-panel="brief" aria-selected="true">Today</button>
+    <button class="nav-btn" data-panel="chat" aria-selected="false">Assistant</button>
+    <button class="nav-btn" data-panel="approvals" aria-selected="false">
+      Approvals <span class="badge" id="approval-count" data-count="0"></span>
+    </button>
+    <button class="nav-btn" data-panel="autonomy" aria-selected="false">What it may do</button>
+    <button class="nav-btn" data-panel="systems" aria-selected="false">Systems</button>
+
+    <div class="sidebar-foot" id="who"></div>
+  </nav>
+
+  <main class="main">
+
+    <!-- Today -->
+    <section class="panel active" id="panel-brief">
+      <h1>Good morning</h1>
+      <p class="subtitle" id="brief-subtitle">Loading your brief…</p>
+      <div id="brief-notices"></div>
+      <div class="card">
+        <div class="brief-body" id="brief-body"><span class="spinner"></span></div>
+        <div class="meta-row" id="brief-meta"></div>
+      </div>
+      <button class="ghost" id="refresh-brief">Regenerate</button>
+    </section>
+
+    <!-- Assistant -->
+    <section class="panel" id="panel-chat">
+      <h1>Assistant</h1>
+      <p class="subtitle">
+        Acts across your systems. Anything that changes something is held for your approval first.
+      </p>
+      <div class="thread" id="thread"></div>
+      <div class="composer">
+        <textarea id="composer" rows="2"
+          placeholder="Ask about your mail, tasks or incidents — or tell it to do something."></textarea>
+        <button class="primary" id="send">Send</button>
+      </div>
+    </section>
+
+    <!-- Approvals -->
+    <section class="panel" id="panel-approvals">
+      <h1>Approvals</h1>
+      <p class="subtitle">
+        Exactly what would be sent, not a summary of it. Nothing here has run.
+      </p>
+      <div id="approvals"></div>
+    </section>
+
+    <!-- Autonomy -->
+    <section class="panel" id="panel-autonomy">
+      <h1>What your assistant may do</h1>
+      <p class="subtitle">
+        Autonomy is earned per tool, and a single rejection resets it. You can see the whole record.
+      </p>
+      <div class="card">
+        <div class="card-title">Track record</div>
+        <div id="autonomy-table"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Recent actions</div>
+        <div id="journal"></div>
+      </div>
+    </section>
+
+    <!-- Systems -->
+    <section class="panel" id="panel-systems">
+      <h1>Systems</h1>
+      <p class="subtitle">
+        When a connector is unreachable your brief says so rather than quietly leaving it out.
+      </p>
+      <div class="card"><div id="systems"></div></div>
+      <div class="card">
+        <div class="card-title">Morning brief schedule</div>
+        <div id="schedule"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+<script src="/ui/app.js"></script>
+</body>
+</html>

@@ -25,6 +25,8 @@ production, Ollama in development):
 UIONE_MODEL_PLANE_URL=http://127.0.0.1:11434/v1 make run
 ```
 
+Then open **http://127.0.0.1:8000/** for the workspace.
+
 See the signature moment with a real open-weight model:
 
 ```bash
@@ -44,6 +46,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Eval harness: fixture-exact golden tasks gating model changes | `src/uione/evals/` |
 | Durable audit, approvals, undo journal and autonomy records | `src/uione/storage/` |
 | Scheduler: briefs pre-generated ahead of the working day | `src/uione/proactive/` |
+| Web workspace: brief, chat, Approval Center, transparency page | `src/uione/web/` |
 | Morning Brief with provenance, links and honest degradation | `src/uione/proactive/` |
 | HTTP API: chat, brief, approval queue, transparency page | `src/uione/api/` |
 
@@ -61,6 +64,7 @@ fixture is used). Calendar, tasks and incidents remain fixtures.
 - [Evals](docs/EVALS.md) — the golden-task gate, current results, and the two failures it caught.
 - [Storage](docs/STORAGE.md) — what durability protects, and how it was verified across processes.
 - [Scheduler](docs/SCHEDULER.md) — how the brief becomes proactive, and the 10s → 2ms measurement.
+- [Workspace](docs/WORKSPACE.md) — the UI, and why it ships with no build step.
 - [Connectors](docs/CONNECTORS.md) — the mail connector, and what every connector must declare.
 
 ## Status
@@ -68,4 +72,5 @@ fixture is used). Calendar, tasks and incidents remain fixtures.
 Early development. The vertical slice — model plane → governed gateway → agent
 loop → governance → brief → API — is working and tested end to end against real
 open-weight models. Not production-ready: authentication is a header-based placeholder, and calendar,
-tasks and incidents are still fixture connectors.
+tasks and incidents are still fixture connectors. Mail is a real IMAP/SMTP
+connector.
