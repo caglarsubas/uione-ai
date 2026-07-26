@@ -156,6 +156,9 @@ class McpGateway:
     def catalog(self) -> list[ToolSpec]:
         return list(self._catalog.values())
 
+    def has_tool(self, qualified_name: str) -> bool:
+        return qualified_name in self._catalog
+
     def spec(self, qualified_name: str) -> ToolSpec:
         try:
             return self._catalog[qualified_name]

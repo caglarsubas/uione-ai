@@ -106,8 +106,89 @@ checkout runs with no infrastructure.
 allowlist. Left empty, **every** address is external — outbound mail is refused
 rather than quietly allowed anywhere, which is the safe direction to be wrong in.
 
+## Calendar (CalDAV) — Wave 1
+
+Speaks CalDAV (RFC 4791) and iCalendar (RFC 5545), reaching Nextcloud, Radicale,
+Baikal, SOGo, Zimbra and anything else standards-compliant — most of the on-prem
+calendar estate that has no MCP server and no prospect of one.
+
+### Tools
+
+| Tool | Risk | Untrusted | Notes |
+|---|---|---|---|
+| `calendar.today` | `READ` | yes | Today's entries |
+| `calendar.upcoming` | `READ` | yes | Next N days, grouped, clamped to 14 |
+| `calendar.availability` | `READ` | **no** | Free working-hour slots — times only |
+
+Titles are marked untrusted because meeting subjects are written by other people,
+including external senders whose invitations land in the calendar. `availability`
+is *not*, and that distinction is load-bearing: it returns only slot times, no
+text anyone authored, so an A2A availability answer can use it without tainting
+the session.
+
+### Parsing
+
+iCalendar is parsed with the `icalendar` library, not by hand. The format looks
+simple and is not — folded lines, escaped separators, per-property timezones,
+all-day events expressed as dates rather than datetimes. Hand-rolling produces
+something that works on the developer's calendar and fails on everyone else's.
+
+**All-day events are the trap.** They arrive as a date; treating one as midnight
+UTC shifts it into the wrong day for anyone outside UTC, which in a morning brief
+means the wrong day entirely.
+
+### Recurrence, and what it refuses to guess
+
+DAILY, WEEKLY (with `BYDAY`) and MONTHLY-by-date are expanded, honouring `COUNT`
+and `UNTIL`. `BYSETPOS`, `BYMONTHDAY` lists and "third Thursday" rules are **not**
+— those are where a naive expander starts inventing meetings, and an invented
+meeting in a brief is worse than a missing one.
+
+Unsupported rules keep their original instance and carry a visible note:
+`[repeats yearly; occurrences not expanded]`. Expansion is bounded, so a
+malformed rule cannot spin.
+
+### Verified against a real server
+
+Over a socket against a live CalDAV server, not a mock:
+
+```
+--- 5 instances over 3 days ---
+  Mon 27 09:30  Incident review — INC-4471
+  Mon 27 14:00  Daily standup
+  Mon 27 16:00  Board meeting   [repeats yearly; occurrences not expanded]
+  Tue 28 14:00  Daily standup   [recurring instance]
+  Wed 29 14:00  Daily standup   [recurring instance]
+
+--- free slots on the 27th (times only) ---
+  ['10:00', '11:00', '12:00', '13:00', '15:00', '17:00']
+
+server log: REPORT from alice; time-range present: True
+```
+
+The 09:30, 14:00 and 16:00 entries correctly remove those hours. Time-range
+filtering happens server-side — the difference between fetching one day and
+fetching someone's entire calendar history.
+
+### What this fixed in A2A
+
+`GatewayAnswerer._free_slots` previously regexed times out of the *rendered* day.
+A meeting whose title contained "14:00" would have marked the wrong hour busy —
+and a title is exactly what a disclosure contract may forbid us from seeing. It
+now calls `calendar.availability`, which computes from event times and returns
+only times.
+
+### Configuration
+
+```bash
+UIONE_CALENDAR_URL=https://nextcloud.corp.example/remote.php/dav/calendars/alice/personal/
+UIONE_CALENDAR_USERNAME=alice        # falls back to the mail credentials
+UIONE_CALENDAR_PASSWORD=...
+UIONE_BRIEF_TIMEZONE=Europe/Istanbul # also the calendar's display timezone
+```
+
 ## Still fixtures
 
-`calendar`, `tasks`, `incidents` remain fixtures (`connectors/demo.py`). They
-follow the same declaration discipline, so replacing them with real backends is a
-backend swap rather than a rewrite.
+`tasks` and `incidents` remain fixtures (`connectors/demo.py`). They follow the
+same declaration discipline, so replacing them with real backends is a backend
+swap rather than a rewrite.

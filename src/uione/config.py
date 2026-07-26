@@ -58,6 +58,18 @@ class Settings(BaseSettings):
     mail_smtp_port: int = 587
     mail_smtp_tls: bool = True
 
+    # --- Calendar connector ---
+    # Empty URL keeps the fixture connector. A CalDAV URL switches to the real
+    # one, reaching Nextcloud, Radicale, Baikal, SOGo, Zimbra and anything else
+    # speaking RFC 4791.
+    calendar_url: str = ""
+    calendar_username: str = ""
+    calendar_password: str = ""
+
+    @property
+    def calendar_configured(self) -> bool:
+        return bool(self.calendar_url)
+
     #: Domains treated as inside the organisation. Drives external-sender
     #: detection and the egress allowlist; empty means everything is external,
     #: which is the safe direction to be wrong in.
