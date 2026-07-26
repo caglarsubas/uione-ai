@@ -62,11 +62,56 @@ slower than similarly-sized peers because it reasons before answering. That is
 worth paying for planning, and wasteful for triage — which is exactly why the
 router tiers by *task class* rather than by model quality.
 
+## End-to-end agent trials
+
+`scripts/trial_agent.py` runs the whole stack — model plane, reliability layer,
+gateway policy, audit tap, agent loop — against fixture enterprise tools. Unit
+tests prove the pieces; this proves they compose when a real model drives.
+
+### `search` — the normal path (`ministral-3:8b`)
+
+```
+User  : Is there anything unread about the budget?
+Tools : ['mail.search']
+
+[turn 1] tool : mail.search  args: {'query': 'budget', 'unread_only': True}  [ok]
+[turn 2] says : I found 1 unread email about the budget …
+
+stop reason : completed
+audit       : allowed  mail.search  risk=read  args#96dceb02
+```
+
+The model planned, called the tool with a correctly typed boolean, read the
+result, and answered. One audit record, as expected.
+
+### `denied` — the governance boundary under a real model
+
+The principal's grant is `mail.*` capped at `READ`, so `mail.send` exists in the
+catalog but is never shown to this user's model.
+
+```
+User  : Email the CFO at cfo@corp saying I'll be late …
+Tools : ['mail.search']
+
+[turn 1] says : I cannot send emails or access email tools directly. However, I
+                can help you draft the email or search your mailbox …
+
+audit : (no tool calls reached the gateway)
+```
+
+This is the design working as intended, and it is worth being precise about *why*
+it is better than the alternative. Because the model is shown only permitted
+tools, it declined honestly and offered a legitimate alternative. Had we exposed
+`mail.send` and rejected the call at execution time, the user would have watched
+the assistant confidently attempt an action and fail — which reads as
+brokenness. Filtering at the prompt turns a policy denial into a coherent answer.
+
 ## Reproducing
 
 ```bash
 python scripts/trial_models.py --base-url http://127.0.0.1:11434/v1
 python scripts/trial_models.py --models qwen3.6:27b --json results.json
+python scripts/trial_agent.py --model ministral-3:8b --scenario denied
 ```
 
 Any OpenAI-compatible endpoint works: `llm_inference_engine` in production,
