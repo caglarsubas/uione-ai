@@ -68,6 +68,14 @@ class ToolSpec(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=lambda: {"type": "object", "properties": {}})
     risk: RiskClass = RiskClass.READ
 
+    returns_untrusted_content: bool = False
+    """Whether this tool surfaces text an outsider could have authored.
+
+    Set by the connector: inbound mail, public ticket comments and chat from
+    external guests are all ``True``. Reading such a tool taints the session, so
+    subsequent write actions need a human even if the user had earned autonomy.
+    """
+
     model_config = {"frozen": True}
 
     @property
@@ -90,6 +98,23 @@ class ToolSpec(BaseModel):
             description=self.description,
             parameters=self.parameters,
         )
+
+
+class ActionContext(BaseModel):
+    """Session state that governance needs in order to judge an action.
+
+    Carries taint: whether untrusted content has entered this run's context. An
+    action requested while an attacker's text is in the context window is not the
+    same action requested from a clean session, even with identical arguments.
+    """
+
+    tainted: bool = False
+    taint_summary: str = ""
+    correlation_id: str | None = None
+    approved_action_id: str | None = None
+    """Set when executing a previously approved action, so it is not re-held."""
+
+    model_config = {"frozen": True}
 
 
 class ToolResult(BaseModel):

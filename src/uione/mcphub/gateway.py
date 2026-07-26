@@ -14,16 +14,52 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from typing import Protocol
 
 import structlog
 
 from uione.mcphub.audit import AuditLog, AuditOutcome, AuditRecord
 from uione.mcphub.policy import RateLimiter, ToolPolicy
 from uione.mcphub.source import ToolSource
-from uione.mcphub.types import Principal, RiskClass, ToolResult, ToolSpec
+from uione.mcphub.types import ActionContext, Principal, RiskClass, ToolResult, ToolSpec
 from uione.modelplane.types import ToolDefinition
 
 log = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class GovernanceVerdict:
+    """Whether an action may execute now, and why."""
+
+    allowed: bool
+    reason: str = ""
+    pending_action_id: str | None = None
+
+
+class ActionGovernor(Protocol):
+    """Decides whether a permitted action may run *unattended*.
+
+    Declared here rather than imported from :mod:`uione.governance` so the
+    dependency points one way: the gateway owns the contract, governance
+    implements it. That keeps the chokepoint free of policy detail while making
+    it impossible to reach a connector without passing this check.
+    """
+
+    async def authorize(
+        self,
+        principal: Principal,
+        spec: ToolSpec,
+        arguments: dict,
+        context: ActionContext,
+    ) -> GovernanceVerdict: ...
+
+    async def note_execution(
+        self,
+        principal: Principal,
+        spec: ToolSpec,
+        arguments: dict,
+        result: ToolResult,
+    ) -> None: ...
 
 
 @dataclass
@@ -73,10 +109,16 @@ class GatewayCall:
 
     result: ToolResult
     audit: AuditRecord
+    pending_action_id: str | None = None
 
     @property
     def ok(self) -> bool:
         return self.result.ok
+
+    @property
+    def held(self) -> bool:
+        """True when the action was withheld pending human approval."""
+        return self.audit.outcome is AuditOutcome.HELD_FOR_APPROVAL
 
 
 class McpGateway:
@@ -87,6 +129,7 @@ class McpGateway:
         audit: AuditLog | None = None,
         rate_limiter: RateLimiter | None = None,
         breaker: CircuitBreaker | None = None,
+        governor: ActionGovernor | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._sources: dict[str, ToolSource] = {}
@@ -95,6 +138,7 @@ class McpGateway:
         self._audit = audit or AuditLog()
         self._rate_limiter = rate_limiter or RateLimiter()
         self._breaker = breaker or CircuitBreaker()
+        self._governor = governor
         self._clock = clock
 
     # -- registration ------------------------------------------------------
@@ -140,14 +184,17 @@ class McpGateway:
         arguments: dict | None = None,
         *,
         correlation_id: str | None = None,
+        context: ActionContext | None = None,
     ) -> GatewayCall:
         """Invoke a tool on behalf of a principal.
 
-        Never raises for an expected refusal — an unknown tool, a denial, or a
-        rate limit come back as a failed :class:`ToolResult` so the agent loop can
-        show the model why and let it choose differently.
+        Never raises for an expected refusal — an unknown tool, a denial, a rate
+        limit, or an action held for approval come back as a failed
+        :class:`ToolResult` so the agent loop can show the model why and let it
+        choose differently.
         """
         arguments = arguments or {}
+        context = context or ActionContext(correlation_id=correlation_id)
 
         spec = self._catalog.get(qualified_name)
         if spec is None:
@@ -208,6 +255,29 @@ class McpGateway:
                 ToolResult.failure(f"{spec.server} is unavailable (circuit open)"), record
             )
 
+        # Governance is consulted last, immediately before execution, so nothing
+        # can reach a connector without passing it.
+        if self._governor is not None:
+            verdict = await self._governor.authorize(principal, spec, arguments, context)
+            if not verdict.allowed:
+                record = await self._audit.record(
+                    principal=principal,
+                    server=spec.server,
+                    tool=spec.qualified_name,
+                    risk=spec.risk,
+                    outcome=AuditOutcome.HELD_FOR_APPROVAL,
+                    arguments=arguments,
+                    detail=verdict.reason,
+                    correlation_id=context.correlation_id or correlation_id,
+                )
+                return GatewayCall(
+                    ToolResult.failure(
+                        f"This action needs your approval before it runs: {verdict.reason}"
+                    ),
+                    record,
+                    pending_action_id=verdict.pending_action_id,
+                )
+
         source = self._sources[spec.server]
         started = self._clock()
         try:
@@ -233,6 +303,9 @@ class McpGateway:
         else:
             self._breaker.record_failure(spec.server)
 
+        if self._governor is not None:
+            await self._governor.note_execution(principal, spec, arguments, result)
+
         record = await self._audit.record(
             principal=principal,
             server=spec.server,
@@ -242,7 +315,7 @@ class McpGateway:
             arguments=arguments,
             duration_ms=duration_ms,
             detail=result.error,
-            correlation_id=correlation_id,
+            correlation_id=context.correlation_id or correlation_id,
         )
         return GatewayCall(result, record)
 
