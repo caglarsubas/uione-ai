@@ -47,6 +47,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Durable audit, approvals, undo journal and autonomy records | `src/uione/storage/` |
 | Scheduler: briefs pre-generated ahead of the working day | `src/uione/proactive/` |
 | Web workspace: brief, chat, Approval Center, transparency page | `src/uione/web/` |
+| Identity: OIDC bearer validation, fail-closed auth | `src/uione/identity/` |
 | Morning Brief with provenance, links and honest degradation | `src/uione/proactive/` |
 | HTTP API: chat, brief, approval queue, transparency page | `src/uione/api/` |
 
@@ -65,12 +66,13 @@ fixture is used). Calendar, tasks and incidents remain fixtures.
 - [Storage](docs/STORAGE.md) — what durability protects, and how it was verified across processes.
 - [Scheduler](docs/SCHEDULER.md) — how the brief becomes proactive, and the 10s → 2ms measurement.
 - [Workspace](docs/WORKSPACE.md) — the UI, and why it ships with no build step.
+- [Identity](docs/IDENTITY.md) — OIDC, the three auth modes, and why every one fails closed.
 - [Connectors](docs/CONNECTORS.md) — the mail connector, and what every connector must declare.
 
 ## Status
 
 Early development. The vertical slice — model plane → governed gateway → agent
 loop → governance → brief → API — is working and tested end to end against real
-open-weight models. Not production-ready: authentication is a header-based placeholder, and calendar,
-tasks and incidents are still fixture connectors. Mail is a real IMAP/SMTP
-connector.
+open-weight models. Not production-ready: calendar, tasks and incidents are still fixture connectors,
+and the workspace has no OIDC login flow yet (the API accepts bearer tokens
+today). Mail is a real IMAP/SMTP connector and authentication is real OIDC.

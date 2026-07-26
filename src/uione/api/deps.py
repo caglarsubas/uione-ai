@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import structlog
-from fastapi import Header, HTTPException
+from fastapi import HTTPException, Request
 
 from uione.agent import AgentRuntime
 from uione.config import Settings, get_settings
@@ -22,6 +22,13 @@ from uione.connectors.mail import (
     register_mail_undo,
 )
 from uione.governance import EgressPolicy, Governor
+from uione.identity import (
+    AuthError,
+    AuthMode,
+    IdentityResolver,
+    OidcSettings,
+    ProxySettings,
+)
 from uione.knowledge import ExtractionRules
 from uione.mcphub import (
     AuditLog,
@@ -57,6 +64,7 @@ class Services:
     database: Database
     scheduler: Scheduler
     brief_store: BriefStore
+    identity: IdentityResolver
 
 
 _services: Services | None = None
@@ -166,11 +174,37 @@ async def build_services() -> Services:
         brief=generator,
         audit_sink=audit_sink,
         brief_store=brief_store,
+        identity=build_identity(settings),
         scheduler=Scheduler(
             generator=generator,
             store=brief_store,
             principal_for=lambda user_id: Principal(user_id=user_id, roles=frozenset({"analyst"})),
             max_concurrency=settings.scheduler_concurrency,
+        ),
+    )
+
+
+def build_identity(settings: Settings) -> IdentityResolver:
+    """Construct the identity resolver for this deployment.
+
+    Raises rather than degrading if the configuration is unsafe for the
+    environment, so a misconfiguration is a failed startup instead of an open
+    door nobody notices.
+    """
+    return IdentityResolver(
+        AuthMode(settings.auth_mode),
+        environment=settings.environment,
+        oidc=OidcSettings(
+            issuer=settings.oidc_issuer,
+            audience=settings.oidc_audience,
+            jwks_url=settings.oidc_jwks_url,
+            roles_claim=settings.oidc_roles_claim,
+            username_claim=settings.oidc_username_claim,
+        ),
+        proxy=ProxySettings(
+            user_header=settings.proxy_user_header,
+            roles_header=settings.proxy_roles_header,
+            default_roles=settings.proxy_default_role_set,
         ),
     )
 
@@ -209,16 +243,21 @@ def get_services() -> Services:
     return _services
 
 
-def get_principal(
-    x_user_id: str = Header(default="alice"),
-    x_user_roles: str = Header(default="analyst"),
-    x_user_name: str = Header(default=""),
-) -> Principal:
-    """Resolve the caller.
+def get_principal(request: Request) -> Principal:
+    """Resolve the caller, or refuse the request.
 
-    Header-based for now, and deliberately obvious about it: PR1's SSO work
-    (F5.1) replaces this with OIDC. Shipping a placeholder that *looks* like real
-    auth is how a placeholder reaches production.
+    There is no default identity. The previous version of this function returned
+    a user named "alice" with the analyst role when no headers were supplied,
+    which would have meant every unauthenticated request arriving as a valid
+    employee holding real tool grants.
     """
-    roles = frozenset(r.strip() for r in x_user_roles.split(",") if r.strip())
-    return Principal(user_id=x_user_id, roles=roles, display_name=x_user_name or x_user_id)
+    try:
+        return get_services().identity.resolve(request.headers)
+    except AuthError as exc:
+        log.info("identity.refused", reason=exc.reason, path=request.url.path)
+        # WWW-Authenticate so a browser or client knows what to present.
+        raise HTTPException(
+            status_code=401,
+            detail="not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
