@@ -4,18 +4,26 @@
  * node_modules tree is a supply chain the customer's security team has to
  * review and we have to patch; this file is the whole client.
  *
- * The identity headers below stand in for the SSO that replaces them (F5.1).
- * They are deliberately obvious rather than made to look like real auth.
+ * Identity comes from an httpOnly session cookie the browser sends on its own,
+ * so no token is ever readable from here. The X-User-* headers below are used
+ * only when the server is in dev auth mode, which it refuses to be outside a
+ * development environment.
  */
 
-const USER = { id: "alice", roles: "analyst", name: "Alice" };
+const DEV_USER = { id: "alice", roles: "analyst", name: "Alice" };
 
-const H = {
-  "Content-Type": "application/json",
-  "X-User-Id": USER.id,
-  "X-User-Roles": USER.roles,
-  "X-User-Name": USER.name,
-};
+let AUTH = { mode: "unknown", login_url: null };
+let ME = null;
+
+function headers() {
+  const base = { "Content-Type": "application/json" };
+  if (AUTH.mode === "dev") {
+    base["X-User-Id"] = DEV_USER.id;
+    base["X-User-Roles"] = DEV_USER.roles;
+    base["X-User-Name"] = DEV_USER.name;
+  }
+  return base;
+}
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -28,7 +36,13 @@ const el = (tag, cls, text) => {
 class NotAuthenticated extends Error {}
 
 async function api(path, options = {}) {
-  const res = await fetch(path, { headers: H, ...options });
+  const res = await fetch(path, {
+    headers: headers(),
+    // Send the session cookie. Same-origin only: this client never talks to
+    // anything but its own server.
+    credentials: "same-origin",
+    ...options,
+  });
   if (res.status === 401) {
     // The identity headers below only work when the server runs in dev auth
     // mode. Against an OIDC deployment this page needs a bearer token, which
@@ -40,12 +54,22 @@ async function api(path, options = {}) {
 }
 
 function authNotice() {
-  return notice(
-    "danger",
-    "Not signed in.",
-    "This server requires authentication. The workspace currently sends " +
-      "development identity headers, which a production deployment rejects.",
-  );
+  const node = notice("warn", "Not signed in.", "");
+  if (AUTH.login_url) {
+    const button = el("button", "primary", "Sign in");
+    button.style.marginLeft = "10px";
+    button.addEventListener("click", () => {
+      // Come back to whatever the user was looking at.
+      const here = window.location.pathname + window.location.search;
+      window.location.href = `${AUTH.login_url}?return_to=${encodeURIComponent(here)}`;
+    });
+    node.append(button);
+  } else {
+    node.append(
+      el("span", null, " This deployment authenticates elsewhere; no login is available here."),
+    );
+  }
+  return node;
 }
 
 /* ---- navigation ---- */
@@ -386,7 +410,48 @@ const REFRESH = {
   systems: loadSystems,
 };
 
-$("#who").textContent = `${USER.name} · ${USER.roles}`;
-loadBrief();
-loadApprovals().catch(() => {});
-loadSystems().catch(() => {});
+async function boot() {
+  // Ask how this deployment authenticates before doing anything that needs it,
+  // so the first thing a signed-out user sees is a sign-in button rather than a
+  // wall of failed panels.
+  try {
+    AUTH = await (await fetch("/auth/mode", { credentials: "same-origin" })).json();
+  } catch {
+    AUTH = { mode: "unknown", login_url: null };
+  }
+
+  try {
+    ME = await api("/auth/me");
+    $("#who").textContent = `${ME.display_name} · ${ME.roles.join(", ") || "no roles"}`;
+    if (AUTH.mode !== "dev") {
+      const out = el("button", "ghost", "Sign out");
+      out.style.marginTop = "8px";
+      out.addEventListener("click", async () => {
+        await api("/auth/logout", { method: "POST" }).catch(() => {});
+        window.location.reload();
+      });
+      $("#who").append(document.createElement("br"), out);
+    }
+  } catch (err) {
+    if (err instanceof NotAuthenticated) {
+      $("#brief-notices").append(authNotice());
+      $("#brief-body").textContent = "";
+      $("#brief-subtitle").textContent = "Sign in to see your brief.";
+      $("#who").textContent = "not signed in";
+      return;
+    }
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("login") === "failed") {
+    $("#brief-notices").append(
+      notice("danger", "Sign-in did not complete.", "Please try again."),
+    );
+  }
+
+  loadBrief();
+  loadApprovals().catch(() => {});
+  loadSystems().catch(() => {});
+}
+
+boot();

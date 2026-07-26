@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from uione import __version__
 from uione.api import deps
-from uione.api.routes import assistant, health
+from uione.api.routes import assistant, auth, health
 from uione.config import get_settings
 from uione.web import STATIC_DIR
 
@@ -44,6 +44,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health.router, tags=["health"])
     app.include_router(assistant.router, tags=["assistant"])
+    app.include_router(auth.router)
 
     @app.get("/", include_in_schema=False)
     async def index() -> RedirectResponse:

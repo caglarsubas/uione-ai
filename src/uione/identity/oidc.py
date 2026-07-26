@@ -26,6 +26,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 import jwt
 import structlog
 from jwt import PyJWKClient
@@ -69,9 +70,18 @@ class OidcSettings:
     def configured(self) -> bool:
         return bool(self.issuer and (self.jwks_url or self.issuer))
 
-    def resolved_jwks_url(self) -> str:
-        if self.jwks_url:
-            return self.jwks_url
+    @property
+    def discovery_url(self) -> str:
+        return f"{self.issuer.rstrip('/')}/.well-known/openid-configuration"
+
+    def fallback_jwks_url(self) -> str:
+        """Keycloak's path, used only if discovery is unreachable.
+
+        Guessing an IdP-specific path is a last resort: it succeeds for Keycloak
+        and fails at *runtime* for everything else, which is the worst place to
+        find out. Discovery is tried first precisely so a misconfiguration
+        surfaces as "cannot reach the IdP" rather than "invalid token".
+        """
         return f"{self.issuer.rstrip('/')}/protocol/openid-connect/certs"
 
 
@@ -93,12 +103,29 @@ class OidcVerifier:
         self._jwk_client = jwk_client
         self._client_built_at = 0.0
 
+    def _resolve_jwks_url(self) -> str:
+        settings = self._settings
+        if settings.jwks_url:
+            return settings.jwks_url
+
+        # Ask the IdP where its keys are rather than assuming a vendor's path.
+        try:
+            response = httpx.get(settings.discovery_url, timeout=10)
+            response.raise_for_status()
+            if url := response.json().get("jwks_uri"):
+                log.info("identity.jwks_discovered", url=url)
+                return url
+        except Exception as exc:  # noqa: BLE001
+            log.warning("identity.discovery_failed", error=f"{type(exc).__name__}: {exc}")
+
+        return settings.fallback_jwks_url()
+
     def _keys(self) -> Any:
         # Rebuilt periodically so a key rotation is picked up without a restart.
         now = time.monotonic()
         if self._jwk_client is None or now - self._client_built_at > self._settings.jwks_cache_s:
             if self._jwk_client is None or self._client_built_at:
-                self._jwk_client = PyJWKClient(self._settings.resolved_jwks_url(), cache_keys=True)
+                self._jwk_client = PyJWKClient(self._resolve_jwks_url(), cache_keys=True)
             self._client_built_at = now
         return self._jwk_client
 

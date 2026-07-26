@@ -112,6 +112,16 @@ class Settings(BaseSettings):
     oidc_roles_claim: str = "realm_access.roles"
     oidc_username_claim: str = "preferred_username"
 
+    #: Login flow. Absent client id means the deployment authenticates some
+    #: other way (bearer tokens, or a proxy in front) and shows no login button.
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_redirect_uri: str = "http://127.0.0.1:8000/auth/callback"
+    oidc_scopes: str = "openid profile email"
+    oidc_authorization_endpoint: str = ""
+    oidc_token_endpoint: str = ""
+    session_ttl_minutes: int = 720
+
     #: Headers set by an authenticating reverse proxy, when auth_mode=proxy.
     proxy_user_header: str = "X-Forwarded-User"
     proxy_roles_header: str = "X-Forwarded-Groups"

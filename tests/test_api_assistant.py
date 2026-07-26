@@ -561,3 +561,35 @@ def test_an_unknown_request_kind_is_rejected(client: TestClient) -> None:
 def test_disclosure_endpoints_require_identity(client: TestClient) -> None:
     assert client.get("/me/disclosure").status_code == 401
     assert client.get("/colleagues").status_code == 401
+
+
+# -- the login surface -----------------------------------------------------
+
+
+def test_auth_mode_is_readable_without_signing_in(client: TestClient) -> None:
+    """The workspace must know whether to show a sign-in button."""
+    body = client.get("/auth/mode").json()
+
+    assert body["mode"] == "dev"
+    assert body["login_url"] is None
+
+
+def test_whoami_reports_the_caller(client: TestClient) -> None:
+    body = client.get("/auth/me", headers=ALICE_HEADERS).json()
+
+    assert body["user_id"] == "alice"
+    assert body["roles"] == ["analyst"]
+    assert body["auth_mode"] == "dev"
+
+
+def test_whoami_requires_identity(client: TestClient) -> None:
+    assert client.get("/auth/me").status_code == 401
+
+
+def test_login_is_absent_when_the_deployment_has_no_flow(client: TestClient) -> None:
+    """Offering a login we cannot honour is worse than offering none."""
+    assert client.get("/auth/login", follow_redirects=False).status_code == 404
+
+
+def test_logout_is_harmless_without_a_session(client: TestClient) -> None:
+    assert client.post("/auth/logout").status_code == 200

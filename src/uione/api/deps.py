@@ -8,6 +8,7 @@ readable as a single unit rather than reconstructed from scattered imports.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 import structlog
 from fastapi import HTTPException, Request
@@ -31,9 +32,12 @@ from uione.governance import EgressPolicy, Governor
 from uione.identity import (
     AuthError,
     AuthMode,
+    FlowSettings,
     IdentityResolver,
+    OidcFlow,
     OidcSettings,
     ProxySettings,
+    SessionStore,
 )
 from uione.knowledge import ExtractionRules
 from uione.mcphub import (
@@ -74,6 +78,9 @@ class Services:
     a2a: A2ABus
     directory: AgentDirectory
     contracts: ContractRegistry
+    sessions: SessionStore
+    flow: OidcFlow | None
+    session_ttl: timedelta
 
 
 _services: Services | None = None
@@ -178,6 +185,8 @@ async def build_services() -> Services:
         principal_for=principal_for,
     )
 
+    sessions = SessionStore(database, ttl=timedelta(minutes=settings.session_ttl_minutes))
+
     model = ModelPlaneClient()
     router = TaskRouter()
     generator = BriefGenerator(
@@ -199,7 +208,10 @@ async def build_services() -> Services:
         brief=generator,
         audit_sink=audit_sink,
         brief_store=brief_store,
-        identity=build_identity(settings),
+        identity=build_identity(settings, sessions),
+        sessions=sessions,
+        flow=build_flow(settings),
+        session_ttl=timedelta(minutes=settings.session_ttl_minutes),
         a2a=a2a,
         directory=directory,
         contracts=contracts,
@@ -212,7 +224,29 @@ async def build_services() -> Services:
     )
 
 
-def build_identity(settings: Settings) -> IdentityResolver:
+def build_flow(settings: Settings) -> OidcFlow | None:
+    """The login flow, when this deployment has one.
+
+    Absent for proxy and dev modes: there the browser is authenticated before it
+    reaches us, and offering a login button we cannot honour is worse than
+    offering none.
+    """
+    if settings.auth_mode != "oidc" or not settings.oidc_client_id:
+        return None
+    return OidcFlow(
+        FlowSettings(
+            client_id=settings.oidc_client_id,
+            client_secret=settings.oidc_client_secret,
+            redirect_uri=settings.oidc_redirect_uri,
+            scopes=settings.oidc_scopes,
+            authorization_endpoint=settings.oidc_authorization_endpoint,
+            token_endpoint=settings.oidc_token_endpoint,
+        ),
+        issuer=settings.oidc_issuer,
+    )
+
+
+def build_identity(settings: Settings, sessions: SessionStore | None = None) -> IdentityResolver:
     """Construct the identity resolver for this deployment.
 
     Raises rather than degrading if the configuration is unsafe for the
@@ -222,6 +256,7 @@ def build_identity(settings: Settings) -> IdentityResolver:
     return IdentityResolver(
         AuthMode(settings.auth_mode),
         environment=settings.environment,
+        sessions=sessions,
         oidc=OidcSettings(
             issuer=settings.oidc_issuer,
             audience=settings.oidc_audience,
@@ -271,7 +306,7 @@ def get_services() -> Services:
     return _services
 
 
-def get_principal(request: Request) -> Principal:
+async def get_principal(request: Request) -> Principal:
     """Resolve the caller, or refuse the request.
 
     There is no default identity. The previous version of this function returned
@@ -280,7 +315,7 @@ def get_principal(request: Request) -> Principal:
     employee holding real tool grants.
     """
     try:
-        return get_services().identity.resolve(request.headers)
+        return await get_services().identity.resolve(request.headers, request.cookies)
     except AuthError as exc:
         log.info("identity.refused", reason=exc.reason, path=request.url.path)
         # WWW-Authenticate so a browser or client knows what to present.

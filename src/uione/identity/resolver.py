@@ -19,6 +19,7 @@ from uione.identity.oidc import (
     ProxySettings,
     bearer_token,
 )
+from uione.identity.sessions import COOKIE_NAME
 from uione.mcphub import Principal
 
 log = structlog.get_logger(__name__)
@@ -45,10 +46,12 @@ class IdentityResolver:
         proxy: ProxySettings | None = None,
         environment: str = "dev",
         verifier: Any | None = None,
+        sessions: Any | None = None,
     ) -> None:
         self.mode = mode
         self._proxy = proxy or ProxySettings()
         self._environment = environment
+        self._sessions = sessions
 
         if mode is AuthMode.OIDC:
             settings = oidc or OidcSettings()
@@ -79,12 +82,33 @@ class IdentityResolver:
         else:
             log.info("identity.configured", mode=str(mode))
 
-    def resolve(self, headers: Any) -> Principal:
+    def verify_token(self, token: str) -> Principal:
+        """Validate a raw access token.
+
+        Used by the login callback, so a token arriving from the IdP goes
+        through exactly the same checks as one presented as a bearer. Trusting it
+        because it came over TLS from the right host would make this route the
+        one place tokens are not verified.
+        """
+        if self._verifier is None:
+            raise AuthError("no token verifier configured")
+        return self._verifier.verify(token)
+
+    async def resolve(self, headers: Any, cookies: Any = None) -> Principal:
         """Identify the caller, or raise :class:`AuthError`."""
         if self.mode is AuthMode.DISABLED:
             raise AuthError("authentication is not configured on this deployment")
 
         if self.mode is AuthMode.OIDC:
+            # A browser session first: it is what the workspace uses, and
+            # checking it before the bearer path keeps the common case cheap.
+            if self._sessions is not None and cookies:
+                session_id = cookies.get(COOKIE_NAME, "")
+                if session_id:
+                    principal = await self._sessions.get(session_id)
+                    if principal is not None:
+                        return principal
+                    raise AuthError("session expired or revoked")
             return self._verifier.verify(bearer_token(headers.get("Authorization")))
 
         if self.mode is AuthMode.PROXY:
