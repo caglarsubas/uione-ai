@@ -22,6 +22,7 @@ from uione.connectors.mail import (
     register_mail_undo,
 )
 from uione.governance import EgressPolicy, Governor
+from uione.knowledge import ExtractionRules
 from uione.mcphub import (
     AuditLog,
     FanOutAuditSink,
@@ -132,7 +133,14 @@ async def build_services() -> Services:
         governor=governor,
         model=model,
         runtime=AgentRuntime(model=model, gateway=gateway, router=router),
-        brief=BriefGenerator(model=model, gateway=gateway),
+        brief=BriefGenerator(
+            model=model,
+            gateway=gateway,
+            extraction_rules=ExtractionRules(
+                ticket_prefixes=settings.ticket_prefix_set,
+                internal_domains=internal,
+            ),
+        ),
         audit_sink=audit_sink,
     )
 

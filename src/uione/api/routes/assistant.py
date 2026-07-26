@@ -58,6 +58,8 @@ class BriefResponse(BaseModel):
     unavailable: list[str]
     sections: list[SectionView]
     provenance: dict[str, str]
+    connections: list[str] = Field(default_factory=list)
+    """Identifiers found in more than one system, computed from shared keys."""
     untrusted_content_seen: bool
     model: str
     notice: str | None = None
@@ -154,6 +156,7 @@ async def brief(
             for s in result.sections
         ],
         provenance=result.provenance,
+        connections=result.connections,
         untrusted_content_seen=result.taint.tainted,
         model=result.model,
         notice=result.error,
