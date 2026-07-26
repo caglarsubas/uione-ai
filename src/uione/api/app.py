@@ -6,11 +6,14 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from uione import __version__
 from uione.api import deps
 from uione.api.routes import assistant, health
 from uione.config import get_settings
+from uione.web import STATIC_DIR
 
 log = structlog.get_logger(__name__)
 
@@ -41,6 +44,15 @@ def create_app() -> FastAPI:
     )
     app.include_router(health.router, tags=["health"])
     app.include_router(assistant.router, tags=["assistant"])
+
+    @app.get("/", include_in_schema=False)
+    async def index() -> RedirectResponse:
+        return RedirectResponse("/ui/")
+
+    # Mounted last so the API routes above always win a path collision, and with
+    # html=True so /ui/ serves index.html rather than 404ing on an empty path.
+    app.mount("/ui", StaticFiles(directory=STATIC_DIR, html=True), name="ui")
+
     return app
 
 

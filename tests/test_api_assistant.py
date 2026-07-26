@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -379,3 +381,50 @@ def test_schedules_are_per_user(client: TestClient) -> None:
     client.put("/me/schedule", json={"at": "06:45"}, headers=ALICE_HEADERS)
 
     assert client.get("/me/schedule", headers=BOB_HEADERS).json() == []
+
+
+# -- the workspace ---------------------------------------------------------
+
+
+def test_workspace_is_served(client: TestClient) -> None:
+    r = client.get("/ui/")
+
+    assert r.status_code == 200
+    assert "UiOne" in r.text
+
+
+def test_root_redirects_to_the_workspace(client: TestClient) -> None:
+    r = client.get("/", follow_redirects=False)
+
+    assert r.status_code in (302, 307)
+    assert r.headers["location"] == "/ui/"
+
+
+def test_static_assets_are_served(client: TestClient) -> None:
+    assert client.get("/ui/app.js").status_code == 200
+    assert client.get("/ui/styles.css").status_code == 200
+
+
+def test_the_client_loads_nothing_from_outside(client: TestClient) -> None:
+    """An air-gapped deployment cannot reach the internet, and must not try.
+
+    Matches reference syntax rather than the substring "cdn", which appears in a
+    source comment stating there is no CDN — the first version of this test
+    failed on its own documentation.
+    """
+    external = re.compile(
+        r"""(src|href)\s*=\s*["']\s*(https?:)?//"""  # <script src="//...">
+        r"""|url\(\s*["']?\s*(https?:)?//"""  # css url(//...)
+        r"""|@import\s+(url\()?["']\s*(https?:)?//"""  # css @import
+        r"""|fetch\(\s*["']\s*(https?:)?//""",  # fetch("//...")
+        re.IGNORECASE,
+    )
+
+    for path in ("/ui/", "/ui/app.js", "/ui/styles.css"):
+        body = client.get(path).text
+        match = external.search(body)
+        assert match is None, f"{path} references an external origin: {match.group(0)!r}"
+
+
+def test_api_routes_are_not_shadowed_by_the_static_mount(client: TestClient) -> None:
+    assert client.get("/system/health").status_code == 200
