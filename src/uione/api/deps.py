@@ -13,7 +13,14 @@ import structlog
 from fastapi import Header, HTTPException
 
 from uione.agent import AgentRuntime
+from uione.config import Settings, get_settings
 from uione.connectors.demo import build_all
+from uione.connectors.mail import (
+    ImapMailBackend,
+    MailAccount,
+    build_mail_source,
+    register_mail_undo,
+)
 from uione.governance import EgressPolicy, Governor
 from uione.mcphub import (
     AuditLog,
@@ -65,18 +72,57 @@ def default_policy() -> ToolPolicy:
     )
 
 
+def build_connectors(settings: Settings) -> list:
+    """Assemble the connector estate for this deployment.
+
+    Mail is real when an IMAP host is configured and a fixture otherwise, so a
+    fresh checkout runs with no infrastructure while a configured deployment
+    talks to the actual mailbox. The remaining connectors are still fixtures.
+    """
+    sources = build_all()
+
+    if settings.mail_configured:
+        account = MailAccount(
+            host=settings.mail_imap_host,
+            port=settings.mail_imap_port,
+            use_ssl=settings.mail_imap_ssl,
+            username=settings.mail_username,
+            password=settings.mail_password,
+            mailbox=settings.mail_mailbox,
+            smtp_host=settings.mail_smtp_host,
+            smtp_port=settings.mail_smtp_port,
+            smtp_use_tls=settings.mail_smtp_tls,
+            internal_domains=settings.internal_domain_set,
+        )
+        # Replace the fixture mail source rather than adding alongside it: two
+        # servers named "mail" would silently shadow each other in the catalog.
+        sources = [s for s in sources if s.name != "mail"]
+        sources.append(build_mail_source(ImapMailBackend(account)))
+        log.info("connectors.mail_backend", backend="imap", host=settings.mail_imap_host)
+    else:
+        log.info("connectors.mail_backend", backend="fixture")
+
+    return sources
+
+
 async def build_services() -> Services:
+    settings = get_settings()
     audit_sink = InMemoryAuditSink()
+
+    internal = settings.internal_domain_set
     governor = Governor(
-        egress=EgressPolicy(internal_domains=frozenset({"corp.example"})),
+        # With no configured domains every recipient is external, so outbound
+        # mail is refused rather than quietly allowed anywhere.
+        egress=EgressPolicy(internal_domains=internal or frozenset({"corp.example"})),
     )
     gateway = McpGateway(
         policy=default_policy(),
         audit=AuditLog(FanOutAuditSink(audit_sink, StructlogAuditSink())),
         governor=governor,
     )
-    for source in build_all():
+    for source in build_connectors(settings):
         await gateway.register(source)
+    register_mail_undo(governor.journal)
 
     model = ModelPlaneClient()
     router = TaskRouter()

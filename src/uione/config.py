@@ -45,6 +45,32 @@ class Settings(BaseSettings):
     # --- Persistence ---
     database_url: str = "sqlite+aiosqlite:///./uione.db"
 
+    # --- Mail connector ---
+    # Empty host keeps the fixture connector, so a fresh checkout runs with no
+    # infrastructure. Setting a host switches to the real IMAP/SMTP backend.
+    mail_imap_host: str = ""
+    mail_imap_port: int = 993
+    mail_imap_ssl: bool = True
+    mail_username: str = ""
+    mail_password: str = ""
+    mail_mailbox: str = "INBOX"
+    mail_smtp_host: str = ""
+    mail_smtp_port: int = 587
+    mail_smtp_tls: bool = True
+
+    #: Domains treated as inside the organisation. Drives external-sender
+    #: detection and the egress allowlist; empty means everything is external,
+    #: which is the safe direction to be wrong in.
+    internal_domains: str = ""
+
+    @property
+    def internal_domain_set(self) -> frozenset[str]:
+        return frozenset(d.strip().lower() for d in self.internal_domains.split(",") if d.strip())
+
+    @property
+    def mail_configured(self) -> bool:
+        return bool(self.mail_imap_host and self.mail_username)
+
     # --- Governance ---
     # Deny-by-default: an action class must be explicitly allow-listed to auto-run.
     autonomy_default_mode: str = "preview"
