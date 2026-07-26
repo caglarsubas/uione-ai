@@ -282,6 +282,12 @@ class McpGateway:
                 )
 
         source = self._sources[spec.server]
+
+        # Sources that filter by identity are handed the principal explicitly,
+        # so a retrieval tool cannot run without knowing who is asking.
+        if binder := getattr(source, "bind_principal", None):
+            binder("principal", principal)
+
         started = self._clock()
         try:
             result = await source.call(spec.tool, arguments)

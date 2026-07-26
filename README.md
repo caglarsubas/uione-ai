@@ -45,6 +45,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Agent loop with tool-call repair and name resolution | `src/uione/agent/` |
 | Graduated autonomy, approvals, undo journal, injection containment | `src/uione/governance/` |
 | Work graph: deterministic cross-system entity resolution | `src/uione/knowledge/` |
+| Permission-aware retrieval: ACL-filtered BM25 index | `src/uione/knowledge/` |
 | Eval harness: fixture-exact golden tasks gating model changes | `src/uione/evals/` |
 | Durable audit, approvals, undo journal and autonomy records | `src/uione/storage/` |
 | Scheduler: briefs pre-generated ahead of the working day | `src/uione/proactive/` |
@@ -65,6 +66,7 @@ fixture is used). Calendar, tasks and incidents remain fixtures.
 - [Model trials](docs/MODEL_TRIALS.md) — measured tool-calling reliability across eight open-weight models.
 - [Morning Brief](docs/MORNING_BRIEF.md) — implementation notes, observed output, and two honest defects.
 - [Work graph](docs/WORK_GRAPH.md) — deterministic cross-system entity resolution, and why v1 avoids fuzzy matching.
+- [Retrieval](docs/RETRIEVAL.md) — permission-aware search, and why filtering must precede ranking.
 - [Evals](docs/EVALS.md) — the golden-task gate, current results, and the two failures it caught.
 - [Storage](docs/STORAGE.md) — what durability protects, and how it was verified across processes.
 - [Scheduler](docs/SCHEDULER.md) — how the brief becomes proactive, and the 10s → 2ms measurement.
