@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from uione.api import deps
 from uione.api.app import create_app
+from uione.config import get_settings
 from uione.modelplane import Completion, ToolCall
 
 ALICE_HEADERS = {"X-User-Id": "alice", "X-User-Roles": "analyst", "X-User-Name": "Alice"}
@@ -23,8 +24,16 @@ class ScriptedModel:
 
 
 @pytest.fixture
-def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    """App wired with a stub model so the API is testable without a GPU."""
+def client(monkeypatch: pytest.MonkeyPatch, tmp_path) -> TestClient:
+    """App wired with a stub model and a throwaway database.
+
+    The database is per-test on purpose: governance state is now durable, so
+    without isolation each test would inherit the previous one's pending
+    approvals and autonomy record.
+    """
+    monkeypatch.setenv("UIONE_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
+    get_settings.cache_clear()
+
     original = deps.build_services
 
     async def build_with_stub():
@@ -37,6 +46,8 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(deps, "build_services", build_with_stub)
     with TestClient(create_app()) as c:
         yield c
+
+    get_settings.cache_clear()
 
 
 def use_model(client: TestClient, *completions: Completion) -> None:

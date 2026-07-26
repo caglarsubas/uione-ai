@@ -50,7 +50,7 @@ class Governor:
         # A previously approved action re-enters here to execute; it must not be
         # held a second time, but it must still be the action that was approved.
         if context.approved_action_id:
-            action = self.approvals.get(context.approved_action_id)
+            action = await self.approvals.get(context.approved_action_id)
             if action and action.status is ApprovalStatus.APPROVED:
                 if action.arguments != arguments:
                     return GovernanceVerdict(
@@ -82,7 +82,7 @@ class Governor:
         if context.tainted and context.taint_summary:
             reason = f"{reason} ({context.taint_summary})"
 
-        action = self.approvals.submit(principal, spec, arguments, reason=reason)
+        action = await self.approvals.submit(principal, spec, arguments, reason=reason)
         return GovernanceVerdict(allowed=False, reason=reason, pending_action_id=action.id)
 
     async def note_execution(
@@ -94,21 +94,29 @@ class Governor:
     ) -> None:
         """Journal successful mutations so they can be undone."""
         if spec.mutating and result.ok:
-            self.journal.record(principal, spec, arguments, result)
+            await self.journal.record(principal, spec, arguments, result)
 
     # -- user-facing operations -------------------------------------------
 
-    def approve(self, action_id: str, *, note: str | None = None) -> ActionContext:
+    async def approve(self, action_id: str, *, note: str | None = None) -> ActionContext:
         """Approve a held action and return the context that lets it execute."""
-        action = self.approvals.decide(action_id, approved=True, note=note)
+        action = await self.approvals.decide(action_id, approved=True, note=note)
         return ActionContext(approved_action_id=action.id)
 
-    def reject(self, action_id: str, *, note: str | None = None) -> None:
-        self.approvals.decide(action_id, approved=False, note=note)
+    async def reject(self, action_id: str, *, note: str | None = None) -> None:
+        await self.approvals.decide(action_id, approved=False, note=note)
 
-    def record_decision(self, principal: Principal, spec: ToolSpec, *, approved: bool) -> None:
-        """Feed a user's decision into the autonomy track record."""
+    async def record_decision(
+        self, principal: Principal, spec: ToolSpec, *, approved: bool
+    ) -> None:
+        """Feed a user's decision into the autonomy track record.
+
+        Persisted immediately when the policy supports it, so a crash costs at
+        most the decision in flight rather than the user's whole track record.
+        """
         if approved:
             self.autonomy.note_approval(principal, spec)
         else:
             self.autonomy.note_rejection(principal, spec)
+        if persist := getattr(self.autonomy, "persist", None):
+            await persist(principal, spec.qualified_name)

@@ -177,7 +177,7 @@ async def list_approvals(
             preview=a.preview,
             created_at=a.created_at,
         )
-        for a in services.governor.approvals.pending_for(principal)
+        for a in await services.governor.approvals.pending_for(principal)
     ]
 
 
@@ -188,19 +188,19 @@ async def approve(
     principal: Principal = Depends(get_principal),
     services: Services = Depends(get_services),
 ) -> DecisionResponse:
-    action = services.governor.approvals.get(action_id)
+    action = await services.governor.approvals.get(action_id)
     if action is None or action.principal_id != principal.user_id:
         # Same response for missing and not-yours: otherwise this endpoint
         # enumerates other people's action IDs.
         raise HTTPException(status_code=404, detail="no such pending action")
 
     try:
-        context = services.governor.approve(action_id, note=request.note if request else None)
+        context = await services.governor.approve(action_id, note=request.note if request else None)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     spec = services.gateway.spec(action.tool)
-    services.governor.record_decision(principal, spec, approved=True)
+    await services.governor.record_decision(principal, spec, approved=True)
 
     call = await services.gateway.call(principal, action.tool, action.arguments, context=context)
 
@@ -220,16 +220,18 @@ async def reject(
     principal: Principal = Depends(get_principal),
     services: Services = Depends(get_services),
 ) -> DecisionResponse:
-    action = services.governor.approvals.get(action_id)
+    action = await services.governor.approvals.get(action_id)
     if action is None or action.principal_id != principal.user_id:
         raise HTTPException(status_code=404, detail="no such pending action")
 
     try:
-        services.governor.reject(action_id, note=request.note if request else None)
+        await services.governor.reject(action_id, note=request.note if request else None)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    services.governor.record_decision(principal, services.gateway.spec(action.tool), approved=False)
+    await services.governor.record_decision(
+        principal, services.gateway.spec(action.tool), approved=False
+    )
 
     return DecisionResponse(id=action_id, status="rejected")
 
@@ -253,7 +255,7 @@ async def my_autonomy(
                 "risk": str(e.risk),
                 "reversible": e.reversible,
             }
-            for e in services.governor.journal.recent_for(principal)
+            for e in await services.governor.journal.recent_for(principal)
         ],
         "visible_tools": [s.qualified_name for s in services.gateway.tools_for(principal)],
     }

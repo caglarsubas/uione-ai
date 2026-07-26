@@ -42,6 +42,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Graduated autonomy, approvals, undo journal, injection containment | `src/uione/governance/` |
 | Work graph: deterministic cross-system entity resolution | `src/uione/knowledge/` |
 | Eval harness: fixture-exact golden tasks gating model changes | `src/uione/evals/` |
+| Durable audit, approvals, undo journal and autonomy records | `src/uione/storage/` |
 | Morning Brief with provenance, links and honest degradation | `src/uione/proactive/` |
 | HTTP API: chat, brief, approval queue, transparency page | `src/uione/api/` |
 
@@ -57,11 +58,12 @@ fixture is used). Calendar, tasks and incidents remain fixtures.
 - [Morning Brief](docs/MORNING_BRIEF.md) — implementation notes, observed output, and two honest defects.
 - [Work graph](docs/WORK_GRAPH.md) — deterministic cross-system entity resolution, and why v1 avoids fuzzy matching.
 - [Evals](docs/EVALS.md) — the golden-task gate, current results, and the two failures it caught.
+- [Storage](docs/STORAGE.md) — what durability protects, and how it was verified across processes.
 - [Connectors](docs/CONNECTORS.md) — the mail connector, and what every connector must declare.
 
 ## Status
 
 Early development. The vertical slice — model plane → governed gateway → agent
 loop → governance → brief → API — is working and tested end to end against real
-open-weight models. Not production-ready: authentication is header-based
-placeholder, persistence is in-memory, and connectors are fixtures.
+open-weight models. Not production-ready: authentication is a header-based placeholder, and calendar,
+tasks and incidents are still fixture connectors.

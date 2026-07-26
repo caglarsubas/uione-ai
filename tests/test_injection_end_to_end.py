@@ -93,7 +93,7 @@ async def build(*, poisoned: bool, sent: list) -> tuple[McpGateway, Governor, In
     # Alice has genuinely earned the right to send mail unattended.
     send_spec = gateway.spec("mail.send")
     for _ in range(governor.autonomy.promotion_threshold):
-        governor.record_decision(ALICE, send_spec, approved=True)
+        await governor.record_decision(ALICE, send_spec, approved=True)
 
     return gateway, governor, sink
 
@@ -148,7 +148,7 @@ async def test_the_held_action_is_queued_for_a_human() -> None:
 
     run = await AgentRuntime(model=read_then_send(), gateway=gateway).run(ALICE, "check my mail")
 
-    pending = governor.approvals.pending_for(ALICE)
+    pending = await governor.approvals.pending_for(ALICE)
     assert len(pending) == 1
     assert "collector@evil.example" in pending[0].preview
     assert run.held_actions == [pending[0].id]

@@ -191,14 +191,14 @@ async def test_sending_is_held_for_approval(backend: InMemoryMailBackend) -> Non
 
     assert call.held
     assert backend.sent == []
-    assert governor.approvals.pending_for(ALICE)
+    assert await governor.approvals.pending_for(ALICE)
 
 
 async def test_approved_send_reaches_the_backend(backend: InMemoryMailBackend) -> None:
     gateway, governor = await build_gateway(backend)
     held = await gateway.call(ALICE, "mail.send_reply", {"to": ["cfo@corp.example"], "body": "ok"})
 
-    context = governor.approve(held.pending_action_id)
+    context = await governor.approve(held.pending_action_id)
     done = await gateway.call(
         ALICE,
         "mail.send_reply",
@@ -231,7 +231,7 @@ async def test_send_requires_a_body(backend: InMemoryMailBackend) -> None:
     held = await gateway.call(ALICE, "mail.send_reply", {"to": ["a@corp.example"], "body": " "})
 
     # Held first; validation happens when it actually runs.
-    context = governor.approve(held.pending_action_id)
+    context = await governor.approve(held.pending_action_id)
     call = await gateway.call(
         ALICE, "mail.send_reply", {"to": ["a@corp.example"], "body": " "}, context=context
     )
@@ -244,7 +244,7 @@ async def test_single_recipient_string_is_accepted(backend: InMemoryMailBackend)
     """Models routinely send a bare string where the schema declares an array."""
     gateway, governor = await build_gateway(backend)
     held = await gateway.call(ALICE, "mail.send_reply", {"to": "cfo@corp.example", "body": "hi"})
-    context = governor.approve(held.pending_action_id)
+    context = await governor.approve(held.pending_action_id)
 
     call = await gateway.call(
         ALICE,
@@ -261,7 +261,7 @@ async def test_reply_threading_is_preserved(backend: InMemoryMailBackend) -> Non
     gateway, governor = await build_gateway(backend)
     args = {"to": ["cfo@corp.example"], "body": "hi", "in_reply_to": "<abc@corp.example>"}
     held = await gateway.call(ALICE, "mail.send_reply", args)
-    context = governor.approve(held.pending_action_id)
+    context = await governor.approve(held.pending_action_id)
 
     await gateway.call(ALICE, "mail.send_reply", args, context=context)
 
@@ -275,11 +275,11 @@ async def test_mark_read_registers_an_undo(backend: InMemoryMailBackend) -> None
     gateway, governor = await build_gateway(backend)
     register_mail_undo(governor.journal)
     held = await gateway.call(ALICE, "mail.mark_read", {"uid": "1"})
-    context = governor.approve(held.pending_action_id)
+    context = await governor.approve(held.pending_action_id)
 
     await gateway.call(ALICE, "mail.mark_read", {"uid": "1"}, context=context)
 
-    entry = governor.journal.recent_for(ALICE)[0]
+    entry = (await governor.journal.recent_for(ALICE))[0]
     assert entry.reversible
     assert entry.undo_arguments == {"uid": "1"}
 
@@ -290,8 +290,8 @@ async def test_sent_mail_is_never_claimed_reversible(backend: InMemoryMailBacken
     register_mail_undo(governor.journal)
     args = {"to": ["cfo@corp.example"], "body": "hi"}
     held = await gateway.call(ALICE, "mail.send_reply", args)
-    context = governor.approve(held.pending_action_id)
+    context = await governor.approve(held.pending_action_id)
 
     await gateway.call(ALICE, "mail.send_reply", args, context=context)
 
-    assert not governor.journal.recent_for(ALICE)[0].reversible
+    assert not (await governor.journal.recent_for(ALICE))[0].reversible

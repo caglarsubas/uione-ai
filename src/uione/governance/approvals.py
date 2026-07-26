@@ -75,14 +75,16 @@ def render_preview(spec: ToolSpec, arguments: dict[str, Any]) -> str:
 class ApprovalStore:
     """In-memory approval queue.
 
-    The interface is what matters; a durable implementation swaps in behind it
-    without touching callers.
+    Async despite needing no I/O, so that it and the SQL-backed store present
+    exactly the same interface. A sync/async split here would force every caller
+    to know which implementation it holds, which is the coupling the interface
+    exists to prevent.
     """
 
     def __init__(self) -> None:
         self._actions: dict[str, PendingAction] = {}
 
-    def submit(
+    async def submit(
         self,
         principal: Principal,
         spec: ToolSpec,
@@ -109,13 +111,15 @@ class ApprovalStore:
         )
         return action
 
-    def get(self, action_id: str) -> PendingAction | None:
+    async def get(self, action_id: str) -> PendingAction | None:
         return self._actions.get(action_id)
 
-    def pending_for(self, principal: Principal) -> list[PendingAction]:
+    async def pending_for(self, principal: Principal) -> list[PendingAction]:
         return [a for a in self._actions.values() if a.principal_id == principal.user_id and a.open]
 
-    def decide(self, action_id: str, *, approved: bool, note: str | None = None) -> PendingAction:
+    async def decide(
+        self, action_id: str, *, approved: bool, note: str | None = None
+    ) -> PendingAction:
         action = self._actions.get(action_id)
         if action is None:
             raise KeyError(f"no such pending action: {action_id}")
@@ -174,7 +178,7 @@ class ActionJournal:
         """
         self._undo_builders[tool] = builder
 
-    def record(
+    async def record(
         self,
         principal: Principal,
         spec: ToolSpec,
@@ -208,14 +212,14 @@ class ActionJournal:
     def get(self, entry_id: str) -> JournalEntry | None:
         return next((e for e in self._entries if e.id == entry_id), None)
 
-    def recent_for(self, principal: Principal, limit: int = 20) -> list[JournalEntry]:
+    async def recent_for(self, principal: Principal, limit: int = 20) -> list[JournalEntry]:
         entries = [e for e in self._entries if e.principal_id == principal.user_id]
         return sorted(entries, key=lambda e: e.at, reverse=True)[:limit]
 
-    def undoable_for(self, principal: Principal) -> list[JournalEntry]:
-        return [e for e in self.recent_for(principal) if e.reversible]
+    async def undoable_for(self, principal: Principal) -> list[JournalEntry]:
+        return [e for e in await self.recent_for(principal) if e.reversible]
 
-    def mark_undone(self, entry_id: str) -> None:
+    async def mark_undone(self, entry_id: str) -> None:
         if entry := self.get(entry_id):
             entry.undone = True
 

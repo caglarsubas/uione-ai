@@ -63,12 +63,12 @@ async def test_writes_are_held_on_first_use(governor: Governor) -> None:
 
     assert not verdict.allowed
     assert verdict.pending_action_id
-    assert governor.approvals.pending_for(ALICE)
+    assert await governor.approvals.pending_for(ALICE)
 
 
 async def test_autonomy_is_earned_after_repeated_approvals(governor: Governor) -> None:
     for _ in range(governor.autonomy.promotion_threshold):
-        governor.record_decision(ALICE, WRITE_SPEC, approved=True)
+        await governor.record_decision(ALICE, WRITE_SPEC, approved=True)
 
     verdict = await governor.authorize(ALICE, WRITE_SPEC, {"issue": "A-1"}, clean())
 
@@ -79,10 +79,10 @@ async def test_autonomy_is_earned_after_repeated_approvals(governor: Governor) -
 async def test_one_rejection_revokes_earned_autonomy(governor: Governor) -> None:
     """The user's 'no' is information; treating it as noise loses their trust."""
     for _ in range(governor.autonomy.promotion_threshold):
-        governor.record_decision(ALICE, WRITE_SPEC, approved=True)
+        await governor.record_decision(ALICE, WRITE_SPEC, approved=True)
     assert (await governor.authorize(ALICE, WRITE_SPEC, {}, clean())).allowed
 
-    governor.record_decision(ALICE, WRITE_SPEC, approved=False)
+    await governor.record_decision(ALICE, WRITE_SPEC, approved=False)
 
     assert not (await governor.authorize(ALICE, WRITE_SPEC, {}, clean())).allowed
 
@@ -90,7 +90,7 @@ async def test_one_rejection_revokes_earned_autonomy(governor: Governor) -> None
 async def test_autonomy_is_per_user_and_per_tool(governor: Governor) -> None:
     bob = Principal(user_id="bob", roles=frozenset({"analyst"}))
     for _ in range(governor.autonomy.promotion_threshold):
-        governor.record_decision(ALICE, WRITE_SPEC, approved=True)
+        await governor.record_decision(ALICE, WRITE_SPEC, approved=True)
 
     assert (await governor.authorize(ALICE, WRITE_SPEC, {}, clean())).allowed
     assert not (await governor.authorize(bob, WRITE_SPEC, {}, clean())).allowed
@@ -99,7 +99,7 @@ async def test_autonomy_is_per_user_and_per_tool(governor: Governor) -> None:
 
 async def test_irreversible_actions_never_earn_autonomy(governor: Governor) -> None:
     for _ in range(50):
-        governor.record_decision(ALICE, DELETE_SPEC, approved=True)
+        await governor.record_decision(ALICE, DELETE_SPEC, approved=True)
 
     verdict = await governor.authorize(ALICE, DELETE_SPEC, {}, clean())
 
@@ -112,7 +112,7 @@ async def test_pinned_tools_never_earn_autonomy() -> None:
         autonomy=AutonomyPolicy(always_manual=frozenset({"jira.update"}), promotion_threshold=2)
     )
     for _ in range(10):
-        governor.record_decision(ALICE, WRITE_SPEC, approved=True)
+        await governor.record_decision(ALICE, WRITE_SPEC, approved=True)
 
     verdict = await governor.authorize(ALICE, WRITE_SPEC, {}, clean())
 
@@ -122,7 +122,7 @@ async def test_pinned_tools_never_earn_autonomy() -> None:
 
 async def test_progress_toward_autonomy_is_reported(governor: Governor) -> None:
     """The user should see the ladder, not be surprised by it."""
-    governor.record_decision(ALICE, WRITE_SPEC, approved=True)
+    await governor.record_decision(ALICE, WRITE_SPEC, approved=True)
 
     verdict = await governor.authorize(ALICE, WRITE_SPEC, {}, clean())
 
@@ -135,7 +135,7 @@ async def test_progress_toward_autonomy_is_reported(governor: Governor) -> None:
 async def test_taint_forces_approval_despite_earned_autonomy(governor: Governor) -> None:
     """The rule that actually breaks the lethal trifecta."""
     for _ in range(governor.autonomy.promotion_threshold):
-        governor.record_decision(ALICE, WRITE_SPEC, approved=True)
+        await governor.record_decision(ALICE, WRITE_SPEC, approved=True)
     assert (await governor.authorize(ALICE, WRITE_SPEC, {}, clean())).allowed
 
     verdict = await governor.authorize(ALICE, WRITE_SPEC, {}, tainted())
@@ -183,7 +183,7 @@ async def test_internal_recipient_still_needs_approval() -> None:
 async def test_approved_action_executes(governor: Governor) -> None:
     verdict = await governor.authorize(ALICE, WRITE_SPEC, {"issue": "A-1"}, clean())
 
-    context = governor.approve(verdict.pending_action_id)
+    context = await governor.approve(verdict.pending_action_id)
     second = await governor.authorize(ALICE, WRITE_SPEC, {"issue": "A-1"}, context)
 
     assert second.allowed
@@ -193,7 +193,7 @@ async def test_approved_action_executes(governor: Governor) -> None:
 async def test_arguments_cannot_change_after_approval(governor: Governor) -> None:
     """Approving a preview must not authorise a different payload."""
     verdict = await governor.authorize(ALICE, WRITE_SPEC, {"issue": "A-1"}, clean())
-    context = governor.approve(verdict.pending_action_id)
+    context = await governor.approve(verdict.pending_action_id)
 
     swapped = await governor.authorize(ALICE, WRITE_SPEC, {"issue": "A-999"}, context)
 
@@ -206,7 +206,7 @@ async def test_preview_is_built_from_real_arguments(governor: Governor) -> None:
         ALICE, SEND_SPEC, {"to": "cfo@corp", "body": "hello"}, clean()
     )
 
-    action = governor.approvals.get(verdict.pending_action_id)
+    action = await governor.approvals.get(verdict.pending_action_id)
 
     assert "to: cfo@corp" in action.preview
     assert "body: hello" in action.preview
@@ -215,20 +215,20 @@ async def test_preview_is_built_from_real_arguments(governor: Governor) -> None:
 async def test_rejecting_closes_the_action(governor: Governor) -> None:
     verdict = await governor.authorize(ALICE, WRITE_SPEC, {}, clean())
 
-    governor.reject(verdict.pending_action_id, note="wrong ticket")
+    await governor.reject(verdict.pending_action_id, note="wrong ticket")
 
-    action = governor.approvals.get(verdict.pending_action_id)
+    action = await governor.approvals.get(verdict.pending_action_id)
     assert action.status is ApprovalStatus.REJECTED
     assert action.note == "wrong ticket"
-    assert governor.approvals.pending_for(ALICE) == []
+    assert await governor.approvals.pending_for(ALICE) == []
 
 
 async def test_deciding_twice_is_refused(governor: Governor) -> None:
     verdict = await governor.authorize(ALICE, WRITE_SPEC, {}, clean())
-    governor.approve(verdict.pending_action_id)
+    await governor.approve(verdict.pending_action_id)
 
     with pytest.raises(ValueError, match="already"):
-        governor.reject(verdict.pending_action_id)
+        await governor.reject(verdict.pending_action_id)
 
 
 # -- undo journal ----------------------------------------------------------
@@ -237,7 +237,7 @@ async def test_deciding_twice_is_refused(governor: Governor) -> None:
 async def test_successful_mutations_are_journalled(governor: Governor) -> None:
     await governor.note_execution(ALICE, WRITE_SPEC, {"issue": "A-1"}, ToolResult.success("ok"))
 
-    entries = governor.journal.recent_for(ALICE)
+    entries = await governor.journal.recent_for(ALICE)
     assert len(entries) == 1
     assert entries[0].tool == "jira.update"
 
@@ -263,14 +263,14 @@ async def test_registered_undo_makes_an_action_reversible(governor: Governor) ->
         ALICE, WRITE_SPEC, {"issue": "A-1", "status": "closed"}, ToolResult.success("ok")
     )
 
-    entry = governor.journal.recent_for(ALICE)[0]
+    entry = (await governor.journal.recent_for(ALICE))[0]
     assert entry.reversible
     assert entry.undo_arguments == {"issue": "A-1", "status": "reopened"}
 
 
 async def test_tools_without_an_undo_are_not_claimed_reversible(governor: Governor) -> None:
     await governor.note_execution(ALICE, WRITE_SPEC, {"issue": "A-1"}, ToolResult.success("ok"))
-    assert not governor.journal.recent_for(ALICE)[0].reversible
+    assert not (await governor.journal.recent_for(ALICE))[0].reversible
 
 
 async def test_a_broken_undo_builder_does_not_fail_the_action(governor: Governor) -> None:
@@ -329,7 +329,7 @@ async def test_approved_action_then_executes(governor: Governor) -> None:
     gateway, sink, executed = await build_governed_gateway(governor)
     held = await gateway.call(ALICE, "jira.update", {"issue": "A-1"})
 
-    context = governor.approve(held.pending_action_id)
+    context = await governor.approve(held.pending_action_id)
     done = await gateway.call(ALICE, "jira.update", {"issue": "A-1"}, context=context)
 
     assert done.ok
@@ -341,7 +341,7 @@ async def test_earned_autonomy_executes_straight_through(governor: Governor) -> 
     gateway, _, executed = await build_governed_gateway(governor)
     spec = gateway.spec("jira.update")
     for _ in range(governor.autonomy.promotion_threshold):
-        governor.record_decision(ALICE, spec, approved=True)
+        await governor.record_decision(ALICE, spec, approved=True)
 
     call = await gateway.call(ALICE, "jira.update", {"issue": "A-2"})
 
@@ -353,7 +353,7 @@ async def test_tainted_context_holds_even_with_earned_autonomy(governor: Governo
     gateway, _, executed = await build_governed_gateway(governor)
     spec = gateway.spec("jira.update")
     for _ in range(governor.autonomy.promotion_threshold):
-        governor.record_decision(ALICE, spec, approved=True)
+        await governor.record_decision(ALICE, spec, approved=True)
 
     call = await gateway.call(ALICE, "jira.update", {"issue": "A-3"}, context=tainted())
 

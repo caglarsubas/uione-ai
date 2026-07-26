@@ -27,7 +27,6 @@ from uione.mcphub import (
     AuditLog,
     FanOutAuditSink,
     Grant,
-    InMemoryAuditSink,
     McpGateway,
     Principal,
     RiskClass,
@@ -36,6 +35,13 @@ from uione.mcphub import (
 )
 from uione.modelplane import ModelPlaneClient, TaskRouter
 from uione.proactive import BriefGenerator
+from uione.storage import (
+    Database,
+    PersistentAutonomyPolicy,
+    SqlActionJournal,
+    SqlApprovalStore,
+    SqlAuditSink,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -47,7 +53,8 @@ class Services:
     model: ModelPlaneClient
     runtime: AgentRuntime
     brief: BriefGenerator
-    audit_sink: InMemoryAuditSink
+    audit_sink: SqlAuditSink
+    database: Database
 
 
 _services: Services | None = None
@@ -108,10 +115,21 @@ def build_connectors(settings: Settings) -> list:
 
 async def build_services() -> Services:
     settings = get_settings()
-    audit_sink = InMemoryAuditSink()
+
+    database = Database(settings)
+    await database.create_schema()
+    audit_sink = SqlAuditSink(database)
+
+    # Autonomy is read on every mutating call, so its records are cached in
+    # memory at startup and written through on each decision.
+    autonomy = PersistentAutonomyPolicy(database)
+    await autonomy.load()
 
     internal = settings.internal_domain_set
     governor = Governor(
+        autonomy=autonomy,
+        approvals=SqlApprovalStore(database),
+        journal=SqlActionJournal(database),
         # With no configured domains every recipient is external, so outbound
         # mail is refused rather than quietly allowed anywhere.
         egress=EgressPolicy(internal_domains=internal or frozenset({"corp.example"})),
@@ -133,6 +151,7 @@ async def build_services() -> Services:
         governor=governor,
         model=model,
         runtime=AgentRuntime(model=model, gateway=gateway, router=router),
+        database=database,
         brief=BriefGenerator(
             model=model,
             gateway=gateway,
@@ -155,6 +174,7 @@ async def shutdown() -> None:
     global _services
     if _services is not None:
         await _services.model.aclose()
+        await _services.database.dispose()
         _services = None
 
 
