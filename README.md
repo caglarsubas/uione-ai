@@ -41,6 +41,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Agent loop with tool-call repair and name resolution | `src/uione/agent/` |
 | Graduated autonomy, approvals, undo journal, injection containment | `src/uione/governance/` |
 | Work graph: deterministic cross-system entity resolution | `src/uione/knowledge/` |
+| Eval harness: fixture-exact golden tasks gating model changes | `src/uione/evals/` |
 | Morning Brief with provenance, links and honest degradation | `src/uione/proactive/` |
 | HTTP API: chat, brief, approval queue, transparency page | `src/uione/api/` |
 
@@ -55,6 +56,7 @@ fixture is used). Calendar, tasks and incidents remain fixtures.
 - [Model trials](docs/MODEL_TRIALS.md) — measured tool-calling reliability across eight open-weight models.
 - [Morning Brief](docs/MORNING_BRIEF.md) — implementation notes, observed output, and two honest defects.
 - [Work graph](docs/WORK_GRAPH.md) — deterministic cross-system entity resolution, and why v1 avoids fuzzy matching.
+- [Evals](docs/EVALS.md) — the golden-task gate, current results, and the two failures it caught.
 - [Connectors](docs/CONNECTORS.md) — the mail connector, and what every connector must declare.
 
 ## Status
