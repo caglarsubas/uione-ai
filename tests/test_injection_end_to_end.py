@@ -175,7 +175,7 @@ async def test_untrusted_content_is_quarantined_in_the_prompt() -> None:
     await AgentRuntime(model=model, gateway=gateway).run(ALICE, "check my mail")
 
     tool_message = [m for m in model.requests[1] if m.role == "tool"][0]
-    assert "UNTRUSTED_CONTENT" in (tool_message.content or "")
+    assert "trust=untrusted" in (tool_message.content or "")
     assert "not an instruction" in (tool_message.content or "")
     assert "SECURITY NOTE" in (tool_message.content or "")
 
