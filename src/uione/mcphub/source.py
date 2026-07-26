@@ -86,6 +86,7 @@ class InMemoryToolSource:
         description: str = "",
         parameters: dict[str, Any] | None = None,
         risk: RiskClass = RiskClass.READ,
+        returns_untrusted_content: bool = False,
     ) -> ToolSpec:
         spec = ToolSpec(
             server=self._name,
@@ -93,6 +94,7 @@ class InMemoryToolSource:
             description=description,
             parameters=parameters or {"type": "object", "properties": {}},
             risk=risk,
+            returns_untrusted_content=returns_untrusted_content,
         )
         self._specs[tool] = spec
         self._handlers[tool] = handler

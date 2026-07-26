@@ -38,6 +38,9 @@ class AuditOutcome(StrEnum):
     UNKNOWN_TOOL = "unknown_tool"
     CIRCUIT_OPEN = "circuit_open"
 
+    HELD_FOR_APPROVAL = "held_for_approval"
+    """Governance withheld execution pending a human decision."""
+
     FAILED = "failed"
     """Reached the connector, which errored."""
 
