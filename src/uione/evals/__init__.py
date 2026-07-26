@@ -1,0 +1,47 @@
+"""Eval harness — golden tasks gating model, prompt and connector changes."""
+
+from uione.evals.assertions import (
+    Absent,
+    ActionHeld,
+    Assertion,
+    AssertionResult,
+    Contains,
+    EvalOutput,
+    FactMatches,
+    NoInventedIdentifiers,
+    NoWritesExecuted,
+    ReportsUnavailability,
+    ToolCalled,
+    ToolNotCalled,
+)
+from uione.evals.runner import (
+    CaseResult,
+    EvalCase,
+    SuiteResult,
+    render,
+    render_comparison,
+    run_case,
+    run_suite,
+)
+
+__all__ = [
+    "Absent",
+    "ActionHeld",
+    "Assertion",
+    "AssertionResult",
+    "CaseResult",
+    "Contains",
+    "EvalCase",
+    "EvalOutput",
+    "FactMatches",
+    "NoInventedIdentifiers",
+    "NoWritesExecuted",
+    "ReportsUnavailability",
+    "SuiteResult",
+    "ToolCalled",
+    "ToolNotCalled",
+    "render",
+    "render_comparison",
+    "run_case",
+    "run_suite",
+]
