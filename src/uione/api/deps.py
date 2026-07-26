@@ -12,6 +12,12 @@ from dataclasses import dataclass
 import structlog
 from fastapi import HTTPException, Request
 
+from uione.a2a import (
+    A2ABus,
+    AgentDirectory,
+    ContractRegistry,
+    GatewayAnswerer,
+)
 from uione.agent import AgentRuntime
 from uione.config import Settings, get_settings
 from uione.connectors.demo import build_all
@@ -65,6 +71,9 @@ class Services:
     scheduler: Scheduler
     brief_store: BriefStore
     identity: IdentityResolver
+    a2a: A2ABus
+    directory: AgentDirectory
+    contracts: ContractRegistry
 
 
 _services: Services | None = None
@@ -153,6 +162,22 @@ async def build_services() -> Services:
         await gateway.register(source)
     register_mail_undo(governor.journal)
 
+    def principal_for(user_id: str) -> Principal:
+        # Roles are attached by the identity layer on a real request; a
+        # background or A2A action runs with the owner's baseline role.
+        return Principal(user_id=user_id, roles=frozenset({"analyst"}))
+
+    directory = AgentDirectory()
+    contracts = ContractRegistry()
+    a2a = A2ABus(
+        directory=directory,
+        contracts=contracts,
+        answerer=GatewayAnswerer(gateway, principal_for=principal_for),
+        approvals=governor.approvals,
+        audit=AuditLog(FanOutAuditSink(audit_sink, StructlogAuditSink())),
+        principal_for=principal_for,
+    )
+
     model = ModelPlaneClient()
     router = TaskRouter()
     generator = BriefGenerator(
@@ -175,10 +200,13 @@ async def build_services() -> Services:
         audit_sink=audit_sink,
         brief_store=brief_store,
         identity=build_identity(settings),
+        a2a=a2a,
+        directory=directory,
+        contracts=contracts,
         scheduler=Scheduler(
             generator=generator,
             store=brief_store,
-            principal_for=lambda user_id: Principal(user_id=user_id, roles=frozenset({"analyst"})),
+            principal_for=principal_for,
             max_concurrency=settings.scheduler_concurrency,
         ),
     )
