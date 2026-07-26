@@ -1,0 +1,15 @@
+# Claude Code session artifacts
+.claude/
+
+# OS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Environments & secrets
+.env
+.env.*
+!.env.example
