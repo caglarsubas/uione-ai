@@ -43,6 +43,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Work graph: deterministic cross-system entity resolution | `src/uione/knowledge/` |
 | Eval harness: fixture-exact golden tasks gating model changes | `src/uione/evals/` |
 | Durable audit, approvals, undo journal and autonomy records | `src/uione/storage/` |
+| Scheduler: briefs pre-generated ahead of the working day | `src/uione/proactive/` |
 | Morning Brief with provenance, links and honest degradation | `src/uione/proactive/` |
 | HTTP API: chat, brief, approval queue, transparency page | `src/uione/api/` |
 
@@ -59,6 +60,7 @@ fixture is used). Calendar, tasks and incidents remain fixtures.
 - [Work graph](docs/WORK_GRAPH.md) — deterministic cross-system entity resolution, and why v1 avoids fuzzy matching.
 - [Evals](docs/EVALS.md) — the golden-task gate, current results, and the two failures it caught.
 - [Storage](docs/STORAGE.md) — what durability protects, and how it was verified across processes.
+- [Scheduler](docs/SCHEDULER.md) — how the brief becomes proactive, and the 10s → 2ms measurement.
 - [Connectors](docs/CONNECTORS.md) — the mail connector, and what every connector must declare.
 
 ## Status

@@ -34,7 +34,7 @@ from uione.mcphub import (
     ToolPolicy,
 )
 from uione.modelplane import ModelPlaneClient, TaskRouter
-from uione.proactive import BriefGenerator
+from uione.proactive import BriefGenerator, BriefStore, Schedule, Scheduler
 from uione.storage import (
     Database,
     PersistentAutonomyPolicy,
@@ -55,6 +55,8 @@ class Services:
     brief: BriefGenerator
     audit_sink: SqlAuditSink
     database: Database
+    scheduler: Scheduler
+    brief_store: BriefStore
 
 
 _services: Services | None = None
@@ -145,6 +147,15 @@ async def build_services() -> Services:
 
     model = ModelPlaneClient()
     router = TaskRouter()
+    generator = BriefGenerator(
+        model=model,
+        gateway=gateway,
+        extraction_rules=ExtractionRules(
+            ticket_prefixes=settings.ticket_prefix_set,
+            internal_domains=internal,
+        ),
+    )
+    brief_store = BriefStore()
 
     return Services(
         gateway=gateway,
@@ -152,27 +163,41 @@ async def build_services() -> Services:
         model=model,
         runtime=AgentRuntime(model=model, gateway=gateway, router=router),
         database=database,
-        brief=BriefGenerator(
-            model=model,
-            gateway=gateway,
-            extraction_rules=ExtractionRules(
-                ticket_prefixes=settings.ticket_prefix_set,
-                internal_domains=internal,
-            ),
-        ),
+        brief=generator,
         audit_sink=audit_sink,
+        brief_store=brief_store,
+        scheduler=Scheduler(
+            generator=generator,
+            store=brief_store,
+            principal_for=lambda user_id: Principal(user_id=user_id, roles=frozenset({"analyst"})),
+            max_concurrency=settings.scheduler_concurrency,
+        ),
+    )
+
+
+def default_schedule(settings: Settings) -> Schedule:
+    return Schedule(
+        at=settings.brief_time_of_day,
+        timezone=settings.brief_timezone,
+        jitter_s=settings.brief_jitter_s,
     )
 
 
 async def startup() -> Services:
     global _services
     _services = await build_services()
+    settings = get_settings()
+    if settings.scheduler_enabled:
+        _services.scheduler.start(interval_s=settings.scheduler_interval_s)
     return _services
 
 
 async def shutdown() -> None:
     global _services
     if _services is not None:
+        # Stop background work before closing the client it depends on, or a
+        # tick in flight fails against a disposed connection pool on the way out.
+        await _services.scheduler.stop()
         await _services.model.aclose()
         await _services.database.dispose()
         _services = None

@@ -278,3 +278,104 @@ def test_connector_health_is_exposed(client: TestClient) -> None:
 
     assert set(body["connectors"]) == {"mail", "tasks", "incidents", "calendar"}
     assert body["degraded"] == []
+
+
+# -- pre-generated briefs and schedules -----------------------------------
+
+
+def test_first_brief_is_generated_on_request(client: TestClient) -> None:
+    use_model(client, Completion(content="Fresh brief."))
+
+    body = client.get("/brief", headers=ALICE_HEADERS).json()
+
+    assert body["pregenerated"] is False
+    assert body["body"] == "Fresh brief."
+
+
+def test_second_read_is_served_from_the_pre_generated_copy(client: TestClient) -> None:
+    """'Good morning' should be answered immediately, not regenerated per reader."""
+    use_model(client, Completion(content="First."))
+    client.get("/brief", headers=ALICE_HEADERS)
+
+    use_model(client, Completion(content="Second."))
+    body = client.get("/brief", headers=ALICE_HEADERS).json()
+
+    assert body["pregenerated"] is True
+    assert body["body"] == "First."
+    assert body["age_seconds"] is not None
+
+
+def test_refresh_forces_regeneration(client: TestClient) -> None:
+    use_model(client, Completion(content="First."))
+    client.get("/brief", headers=ALICE_HEADERS)
+
+    use_model(client, Completion(content="Second."))
+    body = client.get("/brief?refresh=true", headers=ALICE_HEADERS).json()
+
+    assert body["body"] == "Second."
+    assert body["pregenerated"] is False
+
+
+def test_cached_briefs_are_per_user(client: TestClient) -> None:
+    use_model(client, Completion(content="Alice's."))
+    client.get("/brief", headers=ALICE_HEADERS)
+
+    use_model(client, Completion(content="Bob's."))
+    body = client.get("/brief", headers=BOB_HEADERS).json()
+
+    assert body["body"] == "Bob's."
+    assert body["pregenerated"] is False
+
+
+def test_schedule_starts_empty(client: TestClient) -> None:
+    assert client.get("/me/schedule", headers=ALICE_HEADERS).json() == []
+
+
+def test_setting_a_schedule_returns_the_next_run(client: TestClient) -> None:
+    r = client.put(
+        "/me/schedule",
+        json={"at": "06:45", "timezone": "Europe/Istanbul"},
+        headers=ALICE_HEADERS,
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["at"] == "06:45"
+    assert body["timezone"] == "Europe/Istanbul"
+    assert body["next_run"] is not None
+
+
+def test_schedule_can_be_disabled(client: TestClient) -> None:
+    client.put("/me/schedule", json={"at": "07:00"}, headers=ALICE_HEADERS)
+
+    r = client.put("/me/schedule", json={"enabled": False}, headers=ALICE_HEADERS)
+
+    assert r.json()["enabled"] is False
+    assert r.json()["next_run"] is None
+
+
+def test_updating_a_schedule_keeps_the_other_fields(client: TestClient) -> None:
+    client.put(
+        "/me/schedule", json={"at": "06:45", "timezone": "Europe/Istanbul"}, headers=ALICE_HEADERS
+    )
+
+    r = client.put("/me/schedule", json={"at": "08:15"}, headers=ALICE_HEADERS)
+
+    assert r.json()["at"] == "08:15"
+    assert r.json()["timezone"] == "Europe/Istanbul"
+
+
+def test_a_bad_time_is_rejected(client: TestClient) -> None:
+    r = client.put("/me/schedule", json={"at": "tomorrow"}, headers=ALICE_HEADERS)
+    assert r.status_code == 422
+
+
+def test_an_unknown_timezone_is_rejected(client: TestClient) -> None:
+    r = client.put("/me/schedule", json={"timezone": "Mars/Olympus"}, headers=ALICE_HEADERS)
+    assert r.status_code == 422
+
+
+def test_schedules_are_per_user(client: TestClient) -> None:
+    client.put("/me/schedule", json={"at": "06:45"}, headers=ALICE_HEADERS)
+
+    assert client.get("/me/schedule", headers=BOB_HEADERS).json() == []

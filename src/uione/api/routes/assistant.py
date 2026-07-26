@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from uione.api.deps import Services, get_principal, get_services
+from uione.api.deps import Services, default_schedule, get_principal, get_services
+from uione.config import get_settings
 from uione.mcphub import Principal
+from uione.proactive import JobKind, Schedule, ScheduledJob
 
 router = APIRouter()
 
@@ -63,6 +66,27 @@ class BriefResponse(BaseModel):
     untrusted_content_seen: bool
     model: str
     notice: str | None = None
+    pregenerated: bool = False
+    """True when this was prepared ahead of time rather than on request."""
+    age_seconds: float | None = None
+
+
+class ScheduleView(BaseModel):
+    kind: str
+    enabled: bool
+    at: str
+    timezone: str
+    next_run: datetime | None = None
+    last_run: datetime | None = None
+    runs: int = 0
+    failures: int = 0
+    last_error: str | None = None
+
+
+class ScheduleUpdate(BaseModel):
+    enabled: bool | None = None
+    at: str | None = Field(default=None, description="HH:MM in the user's timezone.")
+    timezone: str | None = None
 
 
 class PendingActionView(BaseModel):
@@ -134,12 +158,39 @@ async def chat(
 @router.get("/brief", response_model=BriefResponse)
 async def brief(
     greeting: str = "Good morning",
+    refresh: bool = False,
     principal: Principal = Depends(get_principal),
     services: Services = Depends(get_services),
 ) -> BriefResponse:
-    result = await services.brief.generate(principal, greeting=greeting)
+    """Return the user's brief.
+
+    Served from the pre-generated copy when one is fresh, which is the whole
+    point of the scheduler: "good morning" should be answered immediately, not
+    after several seconds of generation. ``refresh=true`` forces a rebuild.
+    """
+    settings = get_settings()
+    pregenerated = False
+    age_seconds: float | None = None
+
+    stored = (
+        None
+        if refresh
+        else services.brief_store.get(
+            principal.user_id, max_age=timedelta(minutes=settings.brief_max_age_minutes)
+        )
+    )
+    if stored is not None:
+        result = stored.brief
+        pregenerated = True
+        age_seconds = round(stored.age(datetime.now(UTC)).total_seconds(), 1)
+    else:
+        result = await services.brief.generate(principal, greeting=greeting)
+        # Cache it, so a second reader this morning does not pay again.
+        services.brief_store.put(principal.user_id, result)
 
     return BriefResponse(
+        pregenerated=pregenerated,
+        age_seconds=age_seconds,
         body=result.body,
         generated_at=result.generated_at,
         complete=result.complete,
@@ -269,3 +320,82 @@ async def system_health(services: Services = Depends(get_services)) -> dict[str,
         "connectors": health,
         "degraded": [name for name, status in health.items() if status != "ok"],
     }
+
+
+@router.get("/me/schedule", response_model=list[ScheduleView])
+async def my_schedule(
+    principal: Principal = Depends(get_principal),
+    services: Services = Depends(get_services),
+) -> list[ScheduleView]:
+    now = datetime.now(UTC)
+    return [
+        ScheduleView(
+            kind=str(job.kind),
+            enabled=job.enabled,
+            at=job.schedule.at.strftime("%H:%M"),
+            timezone=job.schedule.timezone,
+            next_run=job.next_run(now) if job.enabled else None,
+            last_run=job.last_run,
+            runs=job.runs,
+            failures=job.failures,
+            last_error=job.last_error,
+        )
+        for job in services.scheduler.for_user(principal.user_id)
+    ]
+
+
+@router.put("/me/schedule", response_model=ScheduleView)
+async def set_schedule(
+    update: ScheduleUpdate,
+    principal: Principal = Depends(get_principal),
+    services: Services = Depends(get_services),
+) -> ScheduleView:
+    """Set when this user's morning brief is prepared.
+
+    A user who cannot change when their assistant wakes up will simply stop
+    opening the brief, which is a worse outcome than the wrong default.
+    """
+    settings = get_settings()
+    existing = next(
+        (
+            j
+            for j in services.scheduler.for_user(principal.user_id)
+            if j.kind == JobKind.MORNING_BRIEF
+        ),
+        None,
+    )
+    schedule = existing.schedule if existing else default_schedule(settings)
+
+    if update.at is not None:
+        try:
+            hour, _, minute = update.at.partition(":")
+            at = time(int(hour), int(minute or 0))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="at must be HH:MM") from None
+    else:
+        at = schedule.at
+
+    timezone = update.timezone or schedule.timezone
+    try:
+        ZoneInfo(timezone)
+    except Exception:
+        raise HTTPException(status_code=422, detail=f"unknown timezone {timezone!r}") from None
+
+    job = services.scheduler.add(
+        ScheduledJob(
+            user_id=principal.user_id,
+            kind=JobKind.MORNING_BRIEF,
+            schedule=Schedule(at=at, timezone=timezone, jitter_s=schedule.jitter_s),
+            enabled=update.enabled if update.enabled is not None else True,
+            last_run=existing.last_run if existing else None,
+        )
+    )
+    now = datetime.now(UTC)
+    return ScheduleView(
+        kind=str(job.kind),
+        enabled=job.enabled,
+        at=job.schedule.at.strftime("%H:%M"),
+        timezone=job.schedule.timezone,
+        next_run=job.next_run(now) if job.enabled else None,
+        last_run=job.last_run,
+    )

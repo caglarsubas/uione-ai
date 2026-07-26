@@ -80,6 +80,26 @@ class Settings(BaseSettings):
     def mail_configured(self) -> bool:
         return bool(self.mail_imap_host and self.mail_username)
 
+    # --- Proactive engine ---
+    scheduler_enabled: bool = True
+    scheduler_interval_s: float = 60.0
+    brief_time: str = "07:30"
+    brief_timezone: str = "UTC"
+    #: Spread per user so a fleet does not all hit the model plane at once.
+    brief_jitter_s: int = 900
+    #: How old a stored brief may be before /brief regenerates instead.
+    brief_max_age_minutes: int = 720
+    #: Concurrent background generations. Deliberately small: proactive work
+    #: must yield to people waiting on an interactive request.
+    scheduler_concurrency: int = 2
+
+    @property
+    def brief_time_of_day(self):
+        from datetime import time as _time
+
+        hour, _, minute = self.brief_time.partition(":")
+        return _time(int(hour), int(minute or 0))
+
     # --- Governance ---
     # Deny-by-default: an action class must be explicitly allow-listed to auto-run.
     autonomy_default_mode: str = "preview"
