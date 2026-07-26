@@ -68,7 +68,8 @@ fixture is used). Calendar, tasks and incidents remain fixtures.
 - [Storage](docs/STORAGE.md) — what durability protects, and how it was verified across processes.
 - [Scheduler](docs/SCHEDULER.md) — how the brief becomes proactive, and the 10s → 2ms measurement.
 - [Workspace](docs/WORKSPACE.md) — the UI, and why it ships with no build step.
-- [Identity](docs/IDENTITY.md) — OIDC, the three auth modes, and why every one fails closed.
+- [Identity](docs/IDENTITY.md) — OIDC, the auth modes, and why every one fails closed.
+- [Login](docs/LOGIN.md) — the authorization-code flow, PKCE, and revocable sessions.
 - [A2A](docs/A2A.md) — assistant-to-assistant collaboration, and the disclosure contracts that make it safe.
 - [Connectors](docs/CONNECTORS.md) — the mail connector, and what every connector must declare.
 
@@ -76,6 +77,6 @@ fixture is used). Calendar, tasks and incidents remain fixtures.
 
 Early development. The vertical slice — model plane → governed gateway → agent
 loop → governance → brief → API — is working and tested end to end against real
-open-weight models. Not production-ready: calendar, tasks and incidents are still fixture connectors,
-and the workspace has no OIDC login flow yet (the API accepts bearer tokens
-today). Mail is a real IMAP/SMTP connector and authentication is real OIDC.
+open-weight models. Not production-ready: calendar, tasks and incidents are still fixture connectors.
+Mail is a real IMAP/SMTP connector, authentication is real OIDC with a working
+login flow, and governance state is durable.

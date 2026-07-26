@@ -102,3 +102,25 @@ class AutonomyRow(Base):
     consecutive_approvals: Mapped[int] = mapped_column(Integer, default=0)
     auto_granted: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class SessionRow(Base):
+    """A signed-in browser session.
+
+    Durable so a deployment restart does not silently sign everyone out, and so
+    logout can revoke rather than merely suggest.
+    """
+
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    principal_id: Mapped[str] = mapped_column(String(255), index=True)
+    display_name: Mapped[str] = mapped_column(String(255), default="")
+    roles: Mapped[list] = mapped_column(JSON, default=list)
+
+    # Held server-side, never sent to the browser.
+    access_token: Mapped[str] = mapped_column(Text, default="")
+    refresh_token: Mapped[str] = mapped_column(Text, default="")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

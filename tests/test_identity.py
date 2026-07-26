@@ -240,12 +240,12 @@ def headers(**kwargs) -> dict[str, str]:
     return kwargs
 
 
-def test_disabled_mode_refuses_everything() -> None:
+async def test_disabled_mode_refuses_everything() -> None:
     """An unconfigured deployment must not invent an identity."""
     resolver = IdentityResolver(AuthMode.DISABLED)
 
     with pytest.raises(AuthError):
-        resolver.resolve(headers(**{"X-User-Id": "alice"}))
+        await resolver.resolve(headers(**{"X-User-Id": "alice"}))
 
 
 def test_oidc_mode_requires_an_issuer() -> None:
@@ -253,19 +253,19 @@ def test_oidc_mode_requires_an_issuer() -> None:
         IdentityResolver(AuthMode.OIDC, oidc=OidcSettings())
 
 
-def test_oidc_mode_resolves_a_bearer_token() -> None:
+async def test_oidc_mode_resolves_a_bearer_token() -> None:
     resolver = IdentityResolver(
         AuthMode.OIDC,
         oidc=OidcSettings(issuer=ISSUER, audience=AUDIENCE),
         verifier=verifier(),
     )
 
-    principal = resolver.resolve({"Authorization": f"Bearer {make_token()}"})
+    principal = await resolver.resolve({"Authorization": f"Bearer {make_token()}"})
 
     assert principal.user_id == "alice"
 
 
-def test_oidc_mode_ignores_identity_headers() -> None:
+async def test_oidc_mode_ignores_identity_headers() -> None:
     """Otherwise the dev shortcut survives into the production path."""
     resolver = IdentityResolver(
         AuthMode.OIDC,
@@ -274,13 +274,13 @@ def test_oidc_mode_ignores_identity_headers() -> None:
     )
 
     with pytest.raises(AuthError):
-        resolver.resolve({"X-User-Id": "attacker", "X-User-Roles": "admin"})
+        await resolver.resolve({"X-User-Id": "attacker", "X-User-Roles": "admin"})
 
 
-def test_proxy_mode_reads_forwarded_identity() -> None:
+async def test_proxy_mode_reads_forwarded_identity() -> None:
     resolver = IdentityResolver(AuthMode.PROXY)
 
-    principal = resolver.resolve(
+    principal = await resolver.resolve(
         {"X-Forwarded-User": "bob@corp.example", "X-Forwarded-Groups": "analyst,finance"}
     )
 
@@ -288,34 +288,34 @@ def test_proxy_mode_reads_forwarded_identity() -> None:
     assert principal.roles == frozenset({"analyst", "finance"})
 
 
-def test_proxy_mode_refuses_when_the_proxy_set_nothing() -> None:
+async def test_proxy_mode_refuses_when_the_proxy_set_nothing() -> None:
     """A request that skipped the proxy must not be treated as anonymous-but-fine."""
     with pytest.raises(AuthError):
-        IdentityResolver(AuthMode.PROXY).resolve({})
+        await IdentityResolver(AuthMode.PROXY).resolve({})
 
 
-def test_proxy_default_roles_apply_when_none_are_forwarded() -> None:
+async def test_proxy_default_roles_apply_when_none_are_forwarded() -> None:
     resolver = IdentityResolver(
         AuthMode.PROXY, proxy=ProxySettings(default_roles=frozenset({"employee"}))
     )
 
-    principal = resolver.resolve({"X-Forwarded-User": "bob"})
+    principal = await resolver.resolve({"X-Forwarded-User": "bob"})
 
     assert principal.roles == frozenset({"employee"})
 
 
-def test_dev_mode_works_in_development() -> None:
+async def test_dev_mode_works_in_development() -> None:
     resolver = IdentityResolver(AuthMode.DEV, environment="dev")
 
-    principal = resolver.resolve({"X-User-Id": "alice", "X-User-Roles": "analyst,ops"})
+    principal = await resolver.resolve({"X-User-Id": "alice", "X-User-Roles": "analyst,ops"})
 
     assert principal.user_id == "alice"
     assert principal.roles == frozenset({"analyst", "ops"})
 
 
-def test_dev_mode_still_requires_a_user_id() -> None:
+async def test_dev_mode_still_requires_a_user_id() -> None:
     with pytest.raises(AuthError):
-        IdentityResolver(AuthMode.DEV, environment="dev").resolve({})
+        await IdentityResolver(AuthMode.DEV, environment="dev").resolve({})
 
 
 @pytest.mark.parametrize("environment", ["production", "prod", "staging"])
@@ -325,7 +325,7 @@ def test_dev_mode_refuses_to_start_outside_development(environment: str) -> None
         IdentityResolver(AuthMode.DEV, environment=environment)
 
 
-def test_there_is_no_mode_that_invents_an_identity() -> None:
+async def test_there_is_no_mode_that_invents_an_identity() -> None:
     """Every mode either identifies the caller or raises. None default a user."""
     for mode in AuthMode:
         if mode is AuthMode.OIDC:
@@ -334,4 +334,4 @@ def test_there_is_no_mode_that_invents_an_identity() -> None:
             resolver = IdentityResolver(mode, environment="dev")
 
         with pytest.raises(AuthError):
-            resolver.resolve({})
+            await resolver.resolve({})
