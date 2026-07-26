@@ -8,7 +8,8 @@ Three claims that define the product:
 
 1. **It acts** — write-actions across enterprise systems, not just search.
 2. **It's proactive** — morning briefs, anomaly alerts, recurring reports, watchdogs.
-3. **It's governed** — approval workflows, permission-aware retrieval, immutable audit, on-prem/air-gap deployment, open-weight models.
+3. **It's governed** — approval workflows, immutable audit, on-prem/air-gap deployment, open-weight models.
+4. **Assistants collaborate** — one employee's assistant can ask another's, bounded by a disclosure contract the *subject* controls.
 
 ## Quick start
 
@@ -48,6 +49,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Scheduler: briefs pre-generated ahead of the working day | `src/uione/proactive/` |
 | Web workspace: brief, chat, Approval Center, transparency page | `src/uione/web/` |
 | Identity: OIDC bearer validation, fail-closed auth | `src/uione/identity/` |
+| A2A: assistant collaboration with disclosure contracts | `src/uione/a2a/` |
 | Morning Brief with provenance, links and honest degradation | `src/uione/proactive/` |
 | HTTP API: chat, brief, approval queue, transparency page | `src/uione/api/` |
 
@@ -67,6 +69,7 @@ fixture is used). Calendar, tasks and incidents remain fixtures.
 - [Scheduler](docs/SCHEDULER.md) — how the brief becomes proactive, and the 10s → 2ms measurement.
 - [Workspace](docs/WORKSPACE.md) — the UI, and why it ships with no build step.
 - [Identity](docs/IDENTITY.md) — OIDC, the three auth modes, and why every one fails closed.
+- [A2A](docs/A2A.md) — assistant-to-assistant collaboration, and the disclosure contracts that make it safe.
 - [Connectors](docs/CONNECTORS.md) — the mail connector, and what every connector must declare.
 
 ## Status

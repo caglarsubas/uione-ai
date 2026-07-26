@@ -455,3 +455,109 @@ def test_health_does_not_require_identity(client: TestClient) -> None:
 def test_the_workspace_itself_is_not_gated(client: TestClient) -> None:
     """The page has to load in order to authenticate; the API behind it is gated."""
     assert client.get("/ui/").status_code == 200
+
+
+# -- A2A over the API ------------------------------------------------------
+
+
+def register_bob(client: TestClient) -> None:
+    """Give Bob an assistant by having him make one request."""
+    client.get("/colleagues", headers=BOB_HEADERS)
+
+
+def test_colleagues_lists_other_assistants(client: TestClient) -> None:
+    register_bob(client)
+
+    listed = client.get("/colleagues", headers=ALICE_HEADERS).json()
+
+    assert any(c["owner_id"] == "bob" for c in listed)
+    assert all(c["owner_id"] != "alice" for c in listed), "own assistant is not a colleague"
+
+
+def test_asking_a_colleague_reveals_availability_only(client: TestClient) -> None:
+    register_bob(client)
+
+    r = client.post(
+        "/colleagues/ask",
+        json={"agent_id": "agent:bob", "kind": "ask_availability"},
+        headers=ALICE_HEADERS,
+    )
+
+    body = r.json()
+    assert body["outcome"] in ("answered", "partial")
+    assert "free_slots" in body["data"]
+    assert "meetings" not in body["data"]
+
+
+def test_workload_is_refused_by_the_default_contract(client: TestClient) -> None:
+    """The 'what is she working on?' question, refused by default."""
+    register_bob(client)
+
+    body = client.post(
+        "/colleagues/ask",
+        json={"agent_id": "agent:bob", "kind": "ask_workload"},
+        headers=ALICE_HEADERS,
+    ).json()
+
+    assert body["outcome"] == "refused"
+
+
+def test_bob_can_widen_his_own_contract(client: TestClient) -> None:
+    register_bob(client)
+    client.put(
+        "/me/disclosure",
+        json={"default": ["free_busy", "out_of_office", "contact", "workload"]},
+        headers=BOB_HEADERS,
+    )
+
+    body = client.post(
+        "/colleagues/ask",
+        json={"agent_id": "agent:bob", "kind": "ask_workload"},
+        headers=ALICE_HEADERS,
+    ).json()
+
+    assert body["outcome"] in ("answered", "partial")
+    assert "workload" in body["data"]
+
+
+def test_alice_cannot_change_bobs_contract(client: TestClient) -> None:
+    """The subject owns the policy. Otherwise it is not a policy."""
+    register_bob(client)
+    client.put("/me/disclosure", json={"default": ["workload"]}, headers=ALICE_HEADERS)
+
+    bob = client.get("/me/disclosure", headers=BOB_HEADERS).json()
+
+    assert "workload" not in bob["default"]
+
+
+def test_a_meeting_proposal_lands_in_bobs_approvals(client: TestClient) -> None:
+    register_bob(client)
+
+    asked = client.post(
+        "/colleagues/ask",
+        json={
+            "agent_id": "agent:bob",
+            "kind": "propose_meeting",
+            "payload": {"subject": "incident review", "slot": "14:00"},
+        },
+        headers=ALICE_HEADERS,
+    ).json()
+
+    assert asked["outcome"] == "held"
+    pending = client.get("/approvals", headers=BOB_HEADERS).json()
+    assert any("incident review" in p["reason"] for p in pending)
+    assert client.get("/approvals", headers=ALICE_HEADERS).json() == []
+
+
+def test_an_unknown_request_kind_is_rejected(client: TestClient) -> None:
+    r = client.post(
+        "/colleagues/ask",
+        json={"agent_id": "agent:bob", "kind": "read_their_email"},
+        headers=ALICE_HEADERS,
+    )
+    assert r.status_code == 422
+
+
+def test_disclosure_endpoints_require_identity(client: TestClient) -> None:
+    assert client.get("/me/disclosure").status_code == 401
+    assert client.get("/colleagues").status_code == 401

@@ -9,6 +9,14 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from uione.a2a import (
+    A2ARequest,
+    AgentCard,
+    AgentDirectory,
+    Capability,
+    Facet,
+    RequestKind,
+)
 from uione.api.deps import Services, default_schedule, get_principal, get_services
 from uione.config import get_settings
 from uione.mcphub import Principal
@@ -399,3 +407,172 @@ async def set_schedule(
         next_run=job.next_run(now) if job.enabled else None,
         last_run=job.last_run,
     )
+
+
+# -- A2A -------------------------------------------------------------------
+
+
+class ColleagueView(BaseModel):
+    agent_id: str
+    owner_id: str
+    display_name: str
+    capabilities: list[str]
+    external: bool
+
+
+class AskColleagueRequest(BaseModel):
+    agent_id: str
+    kind: str = Field(description="ask_availability | ask_workload | ask_task_status")
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class AskColleagueResponse(BaseModel):
+    outcome: str
+    summary: str
+    data: dict[str, Any] = Field(default_factory=dict)
+    withheld: str = ""
+    reason: str = ""
+    pending_action_id: str | None = None
+
+
+class ContractView(BaseModel):
+    owner_id: str
+    default: list[str]
+    by_role: dict[str, list[str]]
+    by_user: dict[str, list[str]]
+    external_default: list[str]
+
+
+class ContractUpdate(BaseModel):
+    default: list[str] | None = None
+    by_role: dict[str, list[str]] | None = None
+    by_user: dict[str, list[str]] | None = None
+
+
+def ensure_agent(principal: Principal, services: Services) -> AgentCard:
+    """Make sure this user has an assistant in the directory.
+
+    Registered lazily on first contact rather than provisioned up front, so the
+    directory reflects people who actually use the product instead of every row
+    in the HR system.
+    """
+    existing = services.directory.for_owner(principal.user_id)
+    if existing is not None:
+        return existing
+    return services.directory.register(
+        AgentCard(
+            agent_id=AgentDirectory.agent_id_for(principal.user_id),
+            owner_id=principal.user_id,
+            display_name=f"{principal.display_name}'s assistant",
+            capabilities=frozenset(Capability),
+        )
+    )
+
+
+@router.get("/colleagues", response_model=list[ColleagueView])
+async def colleagues(
+    principal: Principal = Depends(get_principal),
+    services: Services = Depends(get_services),
+) -> list[ColleagueView]:
+    """Assistants this user can address.
+
+    The directory lists who exists, not what they will tell you — that is the
+    contract's job, evaluated per request.
+    """
+    ensure_agent(principal, services)
+    return [
+        ColleagueView(
+            agent_id=c.agent_id,
+            owner_id=c.owner_id,
+            display_name=c.display_name,
+            capabilities=sorted(str(x) for x in c.capabilities),
+            external=c.external,
+        )
+        for c in services.directory.all()
+        if c.owner_id != principal.user_id
+    ]
+
+
+@router.post("/colleagues/ask", response_model=AskColleagueResponse)
+async def ask_colleague(
+    request: AskColleagueRequest,
+    principal: Principal = Depends(get_principal),
+    services: Services = Depends(get_services),
+) -> AskColleagueResponse:
+    """Ask another employee's assistant something on this user's behalf."""
+    try:
+        kind = RequestKind(request.kind)
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail=f"unknown request kind {request.kind!r}"
+        ) from None
+
+    mine = ensure_agent(principal, services)
+
+    response = await services.a2a.send(
+        A2ARequest(
+            from_agent=mine.agent_id,
+            to_agent=request.agent_id,
+            kind=kind,
+            payload=request.payload,
+        ),
+        # Roles come from the verified token, not the request body, so a caller
+        # cannot claim a role to widen what a colleague's contract reveals.
+        requester_roles=principal.roles,
+    )
+
+    return AskColleagueResponse(
+        outcome=str(response.outcome),
+        summary=response.render(),
+        data=response.data,
+        withheld=response.withheld_note,
+        reason=response.reason,
+        pending_action_id=response.pending_action_id,
+    )
+
+
+@router.get("/me/disclosure", response_model=ContractView)
+async def my_disclosure(
+    principal: Principal = Depends(get_principal),
+    services: Services = Depends(get_services),
+) -> ContractView:
+    """What this user's assistant may reveal about them, and to whom."""
+    contract = services.contracts.for_owner(principal.user_id)
+    return ContractView(
+        owner_id=contract.owner_id,
+        default=sorted(str(f) for f in contract.default),
+        by_role={r: sorted(str(f) for f in fs) for r, fs in contract.by_role.items()},
+        by_user={u: sorted(str(f) for f in fs) for u, fs in contract.by_user.items()},
+        external_default=sorted(str(f) for f in contract.external_default),
+    )
+
+
+@router.put("/me/disclosure", response_model=ContractView)
+async def set_disclosure(
+    update: ContractUpdate,
+    principal: Principal = Depends(get_principal),
+    services: Services = Depends(get_services),
+) -> ContractView:
+    """Change what this user's assistant may reveal.
+
+    Owned by the subject: Bob decides what Bob's assistant says about Bob. That
+    is the only arrangement an employee would accept, and the one a works council
+    will ask about.
+    """
+
+    def parse(names: list[str]) -> frozenset[Facet]:
+        try:
+            return frozenset(Facet(n) for n in names)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+
+    contract = services.contracts.for_owner(principal.user_id)
+    if update.default is not None:
+        contract.default = parse(update.default)
+    if update.by_role is not None:
+        contract.by_role = {r: parse(f) for r, f in update.by_role.items()}
+    if update.by_user is not None:
+        contract.by_user = {u: parse(f) for u, f in update.by_user.items()}
+    services.contracts.set(contract)
+
+    return await my_disclosure(principal, services)
