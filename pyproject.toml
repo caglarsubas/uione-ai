@@ -17,6 +17,7 @@ dependencies = [
     "jsonschema>=4.23",
     "sqlalchemy[asyncio]>=2.0",
     "aiosqlite>=0.20",
+    "pyjwt[crypto]>=2.9",
 ]
 
 [project.optional-dependencies]

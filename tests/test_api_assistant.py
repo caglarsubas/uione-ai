@@ -428,3 +428,30 @@ def test_the_client_loads_nothing_from_outside(client: TestClient) -> None:
 
 def test_api_routes_are_not_shadowed_by_the_static_mount(client: TestClient) -> None:
     assert client.get("/system/health").status_code == 200
+
+
+# -- authentication --------------------------------------------------------
+
+
+def test_an_unidentified_request_is_refused(client: TestClient) -> None:
+    """There is no default identity. The placeholder used to return 'alice'."""
+    r = client.get("/brief")
+
+    assert r.status_code == 401
+    assert r.headers["www-authenticate"] == "Bearer"
+
+
+def test_every_user_route_requires_identity(client: TestClient) -> None:
+    for path in ("/brief", "/approvals", "/me/autonomy", "/me/schedule"):
+        assert client.get(path).status_code == 401, path
+    assert client.post("/chat", json={"message": "hi"}).status_code == 401
+
+
+def test_health_does_not_require_identity(client: TestClient) -> None:
+    """Liveness probes have no credentials and must not be gated."""
+    assert client.get("/health").status_code == 200
+
+
+def test_the_workspace_itself_is_not_gated(client: TestClient) -> None:
+    """The page has to load in order to authenticate; the API behind it is gated."""
+    assert client.get("/ui/").status_code == 200

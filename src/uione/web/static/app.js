@@ -25,10 +25,27 @@ const el = (tag, cls, text) => {
   return node;
 };
 
+class NotAuthenticated extends Error {}
+
 async function api(path, options = {}) {
   const res = await fetch(path, { headers: H, ...options });
+  if (res.status === 401) {
+    // The identity headers below only work when the server runs in dev auth
+    // mode. Against an OIDC deployment this page needs a bearer token, which
+    // the login flow (not yet built) supplies.
+    throw new NotAuthenticated("this deployment requires a signed-in session");
+  }
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   return res.status === 204 ? null : res.json();
+}
+
+function authNotice() {
+  return notice(
+    "danger",
+    "Not signed in.",
+    "This server requires authentication. The workspace currently sends " +
+      "development identity headers, which a production deployment rejects.",
+  );
 }
 
 /* ---- navigation ---- */
@@ -74,7 +91,11 @@ async function loadBrief(refresh = false) {
     brief = await api(`/brief${refresh ? "?refresh=true" : ""}`);
   } catch (err) {
     body.innerHTML = "";
-    body.append(notice("danger", "Could not load your brief.", String(err)));
+    body.append(
+      err instanceof NotAuthenticated
+        ? authNotice()
+        : notice("danger", "Could not load your brief.", String(err)),
+    );
     return;
   }
 

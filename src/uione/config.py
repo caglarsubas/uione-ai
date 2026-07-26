@@ -100,6 +100,35 @@ class Settings(BaseSettings):
         hour, _, minute = self.brief_time.partition(":")
         return _time(int(hour), int(minute or 0))
 
+    # --- Identity ---
+    # Deliberately defaults to "dev", which refuses to start outside a
+    # development environment. There is no configuration that silently accepts
+    # unauthenticated requests in production.
+    auth_mode: str = "dev"
+
+    oidc_issuer: str = ""
+    oidc_audience: str = ""
+    oidc_jwks_url: str = ""
+    oidc_roles_claim: str = "realm_access.roles"
+    oidc_username_claim: str = "preferred_username"
+
+    #: Headers set by an authenticating reverse proxy, when auth_mode=proxy.
+    proxy_user_header: str = "X-Forwarded-User"
+    proxy_roles_header: str = "X-Forwarded-Groups"
+    proxy_default_roles: str = ""
+
+    @field_validator("auth_mode")
+    @classmethod
+    def _valid_auth_mode(cls, v: str) -> str:
+        allowed = {"oidc", "proxy", "dev", "disabled"}
+        if v not in allowed:
+            raise ValueError(f"auth_mode must be one of {sorted(allowed)}")
+        return v
+
+    @property
+    def proxy_default_role_set(self) -> frozenset[str]:
+        return frozenset(r.strip() for r in self.proxy_default_roles.split(",") if r.strip())
+
     # --- Governance ---
     # Deny-by-default: an action class must be explicitly allow-listed to auto-run.
     autonomy_default_mode: str = "preview"
