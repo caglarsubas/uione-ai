@@ -21,6 +21,7 @@ from uione.a2a import (
 )
 from uione.agent import AgentRuntime
 from uione.config import Settings, get_settings
+from uione.connectors.calendar import CalDavBackend, CalendarAccount, build_calendar_source
 from uione.connectors.demo import build_all
 from uione.connectors.mail import (
     ImapMailBackend,
@@ -135,6 +136,21 @@ def build_connectors(settings: Settings) -> list:
         log.info("connectors.mail_backend", backend="imap", host=settings.mail_imap_host)
     else:
         log.info("connectors.mail_backend", backend="fixture")
+
+    if settings.calendar_configured:
+        account = CalendarAccount(
+            url=settings.calendar_url,
+            username=settings.calendar_username or settings.mail_username,
+            password=settings.calendar_password or settings.mail_password,
+            timezone=settings.brief_timezone,
+        )
+        sources = [s for s in sources if s.name != "calendar"]
+        sources.append(
+            build_calendar_source(CalDavBackend(account), timezone=settings.brief_timezone)
+        )
+        log.info("connectors.calendar_backend", backend="caldav", url=settings.calendar_url)
+    else:
+        log.info("connectors.calendar_backend", backend="fixture")
 
     return sources
 

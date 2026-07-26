@@ -35,11 +35,13 @@ class GatewayAnswerer:
         *,
         principal_for,
         calendar_tool: str = "calendar.today",
+        availability_tool: str = "calendar.availability",
         tasks_tool: str = "tasks.my_open_issues",
     ) -> None:
         self._gateway = gateway
         self._principal_for = principal_for
         self._calendar_tool = calendar_tool
+        self._availability_tool = availability_tool
         self._tasks_tool = tasks_tool
 
     async def __call__(
@@ -69,7 +71,21 @@ class GatewayAnswerer:
         return data
 
     async def _free_slots(self, owner: Principal) -> list[str]:
-        """Busy times inverted into free ones — never the meetings themselves."""
+        """Free times — never the meetings themselves.
+
+        Uses the calendar connector's own availability tool when one exists,
+        which computes slots from actual event times and returns *only* times.
+        That matters beyond tidiness: the fallback below reads the rendered
+        day, so a meeting whose title happens to contain "14:00" would mark the
+        wrong hour busy, and a title is exactly the thing a disclosure contract
+        may forbid us from seeing at all.
+        """
+        if self._gateway.has_tool(self._availability_tool):
+            call = await self._gateway.call(owner, self._availability_tool)
+            if call.ok:
+                return _parse_slots(call.result.content)
+            return []
+
         call = await self._gateway.call(owner, self._calendar_tool)
         if not call.ok:
             return []
@@ -97,6 +113,11 @@ class GatewayAnswerer:
         if "count" in structured:
             return int(structured["count"])
         return len([line for line in call.result.content.splitlines() if line.startswith("[")])
+
+
+def _parse_slots(text: str) -> list[str]:
+    """Pull HH:MM values out of an availability answer."""
+    return [match.group(0) for match in _TIME_RANGE.finditer(text)]
 
 
 def _summarise(data: dict, target: AgentCard) -> str:

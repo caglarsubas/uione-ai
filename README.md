@@ -41,6 +41,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Model plane client, task-tier routing, escalation | `src/uione/modelplane/` |
 | Governed MCP gateway: deny-by-default policy, audit tap, rate limits, circuit breaking | `src/uione/mcphub/` |
 | Real IMAP/SMTP mail connector | `src/uione/connectors/mail/` |
+| Real CalDAV calendar connector | `src/uione/connectors/calendar/` |
 | Agent loop with tool-call repair and name resolution | `src/uione/agent/` |
 | Graduated autonomy, approvals, undo journal, injection containment | `src/uione/governance/` |
 | Work graph: deterministic cross-system entity resolution | `src/uione/knowledge/` |
@@ -77,6 +78,6 @@ fixture is used). Calendar, tasks and incidents remain fixtures.
 
 Early development. The vertical slice — model plane → governed gateway → agent
 loop → governance → brief → API — is working and tested end to end against real
-open-weight models. Not production-ready: calendar, tasks and incidents are still fixture connectors.
-Mail is a real IMAP/SMTP connector, authentication is real OIDC with a working
-login flow, and governance state is durable.
+open-weight models. Not production-ready: tasks and incidents are still fixture connectors. Mail
+(IMAP/SMTP) and calendar (CalDAV) are real, authentication is real OIDC with a
+working login flow, and governance state is durable.
