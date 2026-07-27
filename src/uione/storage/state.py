@@ -267,6 +267,11 @@ class WatermarkStore:
                 session.add(row)
             row.last_sync = when
 
+    async def delete(self, source: str) -> None:
+        async with self._db.session() as session:
+            if row := await session.get(SyncWatermarkRow, source):
+                await session.delete(row)
+
     async def load_all(self) -> dict[str, datetime]:
         async with self._db.session() as session:
             rows = list((await session.execute(select(SyncWatermarkRow))).scalars())

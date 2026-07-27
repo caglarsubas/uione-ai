@@ -68,6 +68,12 @@ permissions. Set `UIONE_INGEST_ON_STARTUP=1` to sweep configured sources at
 startup; the first run over a large share should be a decision rather than a
 surprise on boot.
 
+Once running, two loops keep the corpus current: content every 15 minutes, and
+permissions every 2 — the second far more often because being late on a
+revocation is a leak, not a stale page. A source whose permissions cannot be
+verified for an hour is quarantined and its content dropped. Freshness per source
+is at `/system/health`.
+
 ## Documents
 
 - [Product strategy, backlog & gap analysis](docs/PRODUCT_STRATEGY_AND_BACKLOG.md) — thesis, reference architecture, 12-epic backlog, 18 strategic gaps, competitive matrix, roadmap.

@@ -44,6 +44,7 @@ from uione.identity import (
 from uione.knowledge import (
     DocumentIndex,
     ExtractionRules,
+    IngestionRefresher,
     Ingestor,
     build_knowledge_source,
     build_mail_ingestion,
@@ -95,6 +96,7 @@ class Services:
     session_ttl: timedelta
     index: DocumentIndex
     ingestor: Ingestor
+    refresher: IngestionRefresher
     schedules: ScheduleStore
     disclosures: DisclosureStore
 
@@ -268,6 +270,13 @@ async def build_services() -> Services:
         for result in await ingestor.sync_all():
             log.info("ingest.startup", **{"result": result.summary()})
 
+    refresher = IngestionRefresher(
+        ingestor=ingestor,
+        content_interval_s=settings.ingest_content_interval_s,
+        acl_interval_s=settings.ingest_acl_interval_s,
+        max_acl_age_s=settings.ingest_max_acl_age_s,
+    )
+
     sessions = SessionStore(database, ttl=timedelta(minutes=settings.session_ttl_minutes))
 
     model = ModelPlaneClient()
@@ -314,6 +323,7 @@ async def build_services() -> Services:
         scheduler=scheduler,
         index=index,
         ingestor=ingestor,
+        refresher=refresher,
         schedules=schedules,
         disclosures=disclosures,
     )
@@ -381,6 +391,8 @@ async def startup() -> Services:
     settings = get_settings()
     if settings.scheduler_enabled:
         _services.scheduler.start(interval_s=settings.scheduler_interval_s)
+    if settings.refresh_enabled:
+        _services.refresher.start()
     return _services
 
 
@@ -390,6 +402,7 @@ async def shutdown() -> None:
         # Stop background work before closing the client it depends on, or a
         # tick in flight fails against a disposed connection pool on the way out.
         await _services.scheduler.stop()
+        await _services.refresher.stop()
         await _services.model.aclose()
         await _services.database.dispose()
         _services = None

@@ -120,6 +120,15 @@ class Settings(BaseSettings):
     #: Whether an ingestion sweep runs at startup. Off by default: a first run
     #: over a large share should be a decision, not a surprise on boot.
     ingest_on_startup: bool = False
+    #: The two refresh loops. Content is expensive and being an hour behind on a
+    #: wiki page is an inconvenience; permissions are cheap and being an hour
+    #: behind means someone can read a document they were removed from.
+    refresh_enabled: bool = True
+    ingest_content_interval_s: float = 900.0
+    ingest_acl_interval_s: float = 120.0
+    #: How long permissions may go unverified before the source is quarantined —
+    #: its content dropped rather than served under permissions of unknown age.
+    ingest_max_acl_age_s: float = 3600.0
 
     @property
     def files_configured(self) -> bool:

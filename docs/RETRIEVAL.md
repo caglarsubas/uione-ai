@@ -251,10 +251,59 @@ restart either refetches the whole corpus or — worse — asks each source for
 changes "since now", so whatever changed while the service was down is never
 seen.
 
+## The refresh loops, and the staleness budget
+
+Two loops, not one, because the two halves of a re-sync have different costs and
+very different urgency:
+
+| Loop | Default | What being late costs |
+|---|---|---|
+| Content sync | 15 minutes | A wiki page is an hour out of date. An inconvenience. |
+| Permission re-sync | 2 minutes | Someone can read a document they were removed from an hour ago. Not an inconvenience. |
+
+The harder question is what to do when permissions *cannot* be verified — the
+source is down, credentials expired, the API changed. Serving documents under
+permissions of unknown age is the exact thing this layer exists to prevent, so
+after `UIONE_INGEST_MAX_ACL_AGE_S` (default an hour) without a successful check
+the source is **quarantined**: its content is dropped from the index and from
+storage.
+
+That is deliberately drastic, and the reasoning is asymmetric. Search quietly
+getting worse is visible, complained about, and recoverable. A leak is none of
+those things.
+
+Two details that are easy to get wrong:
+
+**A brief outage must not empty the corpus.** The budget is a *duration*, not a
+failure count — one failed check on a source verified a minute ago changes
+nothing.
+
+**Recovery refetches everything.** A quarantined source that comes back has its
+watermark cleared first. An incremental fetch would ask for changes since the
+last sync and return only recent ones, so the source would come back permanently
+missing everything older while reporting itself healthy.
+
+Freshness is reported at `/system/health` as a number per source — `acl_age_s`,
+`quarantined`, `consecutive_failures`. "How old are the permissions we are
+enforcing?" must be answerable rather than assumed.
+
+### Verified with a real chmod
+
+Not a mock filesystem and not a manual re-sync. A real file, indexed at startup,
+then `chmod 600` at the source with nothing told to the assistant:
+
+```
+indexed at startup              alice sees 1 | mode 644 | acl_age_s 0
+chmod 600 — nobody told the assistant
+after the permission loop ran   alice sees 0 | mode 600 | acl_age_s 0
+```
+
+Note that the file connector degrades to *removal* rather than an exception: a
+path it can no longer read looks gone, and gone means dropped from the index. So
+the quarantine path is exercised by sources that raise — a network API — rather
+than by this one. Both directions fail closed, which is the property that matters.
+
 ## Not yet
 
-Embeddings and reranking (lexical BM25 today); a real Confluence or SharePoint
-connector to validate the ACL mapping above against a live system; and a
-*scheduled* re-sync. Ingestion runs at startup when `UIONE_INGEST_ON_STARTUP=1`,
-but nothing re-verifies permissions on a timer yet — and this module's own
-argument is that a revocation at the source is a live leak until it lands here.
+Embeddings and reranking (lexical BM25 today), and a real Confluence or
+SharePoint connector to validate the ACL mapping above against a live system.

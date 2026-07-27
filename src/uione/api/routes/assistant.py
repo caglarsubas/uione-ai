@@ -324,9 +324,15 @@ async def my_autonomy(
 async def system_health(services: Services = Depends(get_services)) -> dict[str, Any]:
     """Per-connector status, so degradation is visible rather than inferred."""
     health = services.gateway.server_health()
+    ingestion = services.refresher.status()
     return {
         "connectors": health,
         "degraded": [name for name, status in health.items() if status != "ok"],
+        # "How old are the permissions we are enforcing?" must be answerable
+        # with a number rather than an assumption, so the age is reported even
+        # when everything is healthy.
+        "ingestion": ingestion,
+        "quarantined": [s["source"] for s in ingestion if s["quarantined"]],
     }
 
 

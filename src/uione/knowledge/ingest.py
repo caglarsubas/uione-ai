@@ -129,6 +129,21 @@ class Ingestor:
     def last_sync(self, source: str) -> datetime | None:
         return self._last_sync.get(source)
 
+    @property
+    def watermarks(self) -> dict[str, datetime]:
+        return dict(self._last_sync)
+
+    async def forget_watermark(self, source: str) -> None:
+        """Make the next sync of this source a full one.
+
+        Used when a source's content has been dropped: an incremental fetch
+        against a watermark from before the drop returns only what changed
+        since, so the corpus comes back permanently missing everything older.
+        """
+        self._last_sync.pop(source, None)
+        if self._watermarks is not None:
+            await self._watermarks.delete(source)
+
     async def sync(self, source_name: str, *, incremental: bool = True) -> SyncResult:
         """Pull documents from one source into the index."""
         source = self._sources.get(source_name)
