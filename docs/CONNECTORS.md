@@ -208,6 +208,7 @@ only against a fixture someone wrote is a connector that agrees with its author.
 | **Tasks (Gitea/Forgejo)** | **A real Gitea 1.24 instance in Docker**, and a mock in CI | yes (mock), opt-in (real) |
 | Incidents (ServiceNow) | A mock only — a PDI is free but needs an account | yes (mock) |
 | Claims (Guidewire-shaped) | A mock only — **no free access exists in this category** | yes (mock) |
+| **BI (Grafana)** | **A real Grafana 11.6 in Docker** with a rule firing, and a mock in CI | yes (mock), opt-in (real) |
 
 The last two rows are the honest version of "we support ServiceNow and
 Guidewire". What the tests prove is that the connector handles the *shapes*

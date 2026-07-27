@@ -14,7 +14,7 @@ from uione.mcphub import (
     ToolPolicy,
 )
 from uione.modelplane import Completion, ModelPlaneUnavailable
-from uione.proactive import BriefGenerator
+from uione.proactive import BriefGenerator, BriefSource
 
 ALICE = Principal(user_id="alice", roles=frozenset({"analyst"}), display_name="Alice")
 
@@ -262,3 +262,87 @@ async def test_unavailable_sections_are_not_indexed() -> None:
     # INC-4471 still appears via the alert email, but the incidents section
     # itself contributed nothing.
     assert "incidents" not in brief.provenance
+
+
+# -- which sources a deployment actually has -------------------------------
+
+
+async def test_a_connector_this_deployment_lacks_does_not_degrade_the_brief() -> None:
+    """ "Degraded" has to mean *a system we have is down*.
+
+    If it also means "we never had a claims system", every brief in every
+    deployment carries a warning banner — and a banner that is always on is a
+    banner nobody reads.
+    """
+    generator = BriefGenerator(
+        model=StubModel(),
+        gateway=await build_gateway(),
+        sources=(
+            BriefSource("mail", "mail.list_unread", {"limit": 5}, heading="Unread mail"),
+            BriefSource("claims", "claims.my_claims", heading="Your claims"),
+        ),
+    )
+
+    brief = await generator.generate(ALICE)
+
+    assert brief.complete
+    assert [s.section for s in brief.sections] == ["mail"]
+
+
+async def test_a_section_falls_back_to_the_tool_this_deployment_has() -> None:
+    """A fixture connector and the real one do not agree on tool names.
+
+    Without alternatives, configuring a real incident system makes the incidents
+    section vanish from everyone's brief — quietly, because the tool the brief
+    names simply no longer exists.
+    """
+    generator = BriefGenerator(
+        model=StubModel(),
+        gateway=await build_gateway(),
+        sources=(
+            BriefSource(
+                "incidents",
+                "incidents.does_not_exist",
+                heading="Active incidents",
+                alternatives=("incidents.active",),
+            ),
+        ),
+    )
+
+    brief = await generator.generate(ALICE)
+
+    assert brief.complete
+    assert brief.sections[0].tool == "incidents.active"
+
+
+async def test_the_preferred_tool_wins_when_both_exist() -> None:
+    generator = BriefGenerator(
+        model=StubModel(),
+        gateway=await build_gateway(),
+        sources=(
+            BriefSource(
+                "incidents",
+                "incidents.active",
+                heading="Active incidents",
+                alternatives=("incidents.detail",),
+            ),
+        ),
+    )
+
+    brief = await generator.generate(ALICE)
+
+    assert brief.sections[0].tool == "incidents.active"
+
+
+async def test_a_connector_that_is_present_but_failing_still_degrades() -> None:
+    """The distinction the two tests above depend on."""
+    generator = BriefGenerator(
+        model=StubModel(),
+        gateway=await build_gateway(failing={"incidents"}),
+        sources=(BriefSource("incidents", "incidents.active", heading="Active incidents"),),
+    )
+
+    brief = await generator.generate(ALICE)
+
+    assert not brief.complete
+    assert brief.degraded_sources == ["incidents"]
