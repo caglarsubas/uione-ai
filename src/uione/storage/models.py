@@ -124,3 +124,83 @@ class SessionRow(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class ScheduleRow(Base):
+    """One user's recurring brief.
+
+    Durable because losing it is silent: nobody is told their morning brief
+    stopped being prepared, they simply stop receiving one and conclude the
+    feature does not work.
+    """
+
+    __tablename__ = "schedules"
+
+    principal_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(64), primary_key=True)
+    at: Mapped[str] = mapped_column(String(8), default="07:30")
+    timezone: Mapped[str] = mapped_column(String(64), default="UTC")
+    days: Mapped[list] = mapped_column(JSON, default=list)
+    jitter_s: Mapped[int] = mapped_column(Integer, default=900)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_run: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    runs: Mapped[int] = mapped_column(Integer, default=0)
+    failures: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DisclosureRow(Base):
+    """One person's A2A disclosure policy.
+
+    Losing this reverts everyone to the default, which is *narrower* than most
+    people will have configured — so the failure is colleagues' assistants
+    quietly refusing questions they used to answer, with no error anywhere.
+    """
+
+    __tablename__ = "disclosure_contracts"
+
+    owner_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    default_facets: Mapped[list] = mapped_column(JSON, default=list)
+    external_facets: Mapped[list] = mapped_column(JSON, default=list)
+    by_role: Mapped[dict] = mapped_column(JSON, default=dict)
+    by_user: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class DocumentRow(Base):
+    """An indexed document and the permissions it came with.
+
+    Only the document is stored. The inverted index is *derived* data and is
+    rebuilt at startup — persisting postings would mean a schema change every
+    time the tokeniser changes, and a stale index that disagrees with its own
+    documents is worse than one that takes a second to rebuild.
+    """
+
+    __tablename__ = "documents"
+
+    id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    title: Mapped[str] = mapped_column(Text, default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(String(128), index=True)
+    url: Mapped[str] = mapped_column(Text, default="")
+
+    acl_users: Mapped[list] = mapped_column(JSON, default=list)
+    acl_groups: Mapped[list] = mapped_column(JSON, default=list)
+    acl_denied: Mapped[list] = mapped_column(JSON, default=list)
+    acl_visibility: Mapped[str] = mapped_column(String(32), default="restricted")
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    doc_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class SyncWatermarkRow(Base):
+    """When each ingestion source was last pulled.
+
+    Durable so a restart does not re-ingest an entire share — and, more
+    importantly, so an incremental sync after a restart does not skip the window
+    it never actually fetched.
+    """
+
+    __tablename__ = "sync_watermarks"
+
+    source: Mapped[str] = mapped_column(String(128), primary_key=True)
+    last_sync: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

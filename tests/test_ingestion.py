@@ -256,7 +256,7 @@ async def test_quarantine_drops_a_sources_content(ingestor: Ingestor, index: Doc
     )
     await ingestor.sync_all()
 
-    removed = ingestor.quarantine("wiki", reason="permission sync broken")
+    removed = await ingestor.quarantine("wiki", reason="permission sync broken")
 
     assert removed == 2
     assert index.search(ALICE, "budget") == []

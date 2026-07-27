@@ -18,7 +18,7 @@ not stop Bob's from being generated.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -105,6 +105,13 @@ class Scheduler:
     #: people who are waiting on an interactive request.
     max_concurrency: int = 2
 
+    #: Called after a job is added or run, when this deployment stores
+    #: schedules. Optional so tests and offline use need no database; when
+    #: present, `last_run` in particular must be written through — a restored
+    #: job that has forgotten when it last ran is either due immediately (the
+    #: whole fleet generating at once on boot) or not due until tomorrow.
+    persist: Callable[[ScheduledJob], Awaitable[None]] | None = None
+
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     stats: SchedulerStats = field(default_factory=SchedulerStats)
 
@@ -115,6 +122,18 @@ class Scheduler:
         self.jobs = [j for j in self.jobs if j.key != job.key]
         self.jobs.append(job)
         return job
+
+    async def save(self, job: ScheduledJob) -> ScheduledJob:
+        """Add a job and store it, so it survives a restart."""
+        self.add(job)
+        if self.persist is not None:
+            await self.persist(job)
+        return job
+
+    def load(self, jobs: list[ScheduledJob]) -> int:
+        for job in jobs:
+            self.add(job)
+        return len(jobs)
 
     def for_user(self, user_id: str) -> list[ScheduledJob]:
         return [j for j in self.jobs if j.user_id == user_id]
@@ -151,10 +170,14 @@ class Scheduler:
             job.last_error = f"{type(exc).__name__}: {exc}"
             self.stats.failed += 1
             log.warning("scheduler.job_failed", user=job.user_id, error=job.last_error)
+            # Written even on failure: `last_run` was already advanced, and
+            # losing that is what makes a failing job retry on every tick.
+            await self._persist(job)
             return False
 
         job.last_error = None
         self.store.put(job.user_id, brief, kind=job.kind)
+        await self._persist(job)
         self.stats.generated += 1
         log.info(
             "scheduler.brief_ready",
@@ -163,6 +186,14 @@ class Scheduler:
             complete=brief.complete,
         )
         return True
+
+    async def _persist(self, job: ScheduledJob) -> None:
+        if self.persist is None:
+            return
+        try:
+            await self.persist(job)
+        except Exception:  # noqa: BLE001 — a storage failure must not lose the brief
+            log.exception("scheduler.persist_failed", user=job.user_id)
 
     # -- lifecycle ---------------------------------------------------------
 

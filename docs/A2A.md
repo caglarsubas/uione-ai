@@ -108,6 +108,10 @@ Bob widens his own contract to include workload, then:
 ## Not yet
 
 External A2A over the Linux Foundation wire protocol (our types sit behind an
-adapter for exactly this), contracts persisted to storage — they are in-memory
-like schedules — and a UI for editing them; today it is the `/me/disclosure`
-endpoint.
+adapter for exactly this), and a UI for editing contracts; today it is the
+`/me/disclosure` endpoint.
+
+Contracts are durable as of PR22, which matters more than it sounds: losing one
+reverts its owner to the default, and the default is *narrower*. The symptom is a
+colleague's assistant refusing a question it answered yesterday, with nothing in
+any log connecting the two events.

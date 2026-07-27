@@ -112,6 +112,19 @@ class Settings(BaseSettings):
         hour, _, minute = self.brief_time.partition(":")
         return _time(int(hour), int(minute or 0))
 
+    # --- Retrieval ---
+    #: A file share to index, if this deployment has one. Empty means retrieval
+    #: still works — over whatever the mailbox contributes — rather than being
+    #: switched off, so search is never silently absent.
+    files_root: str = ""
+    #: Whether an ingestion sweep runs at startup. Off by default: a first run
+    #: over a large share should be a decision, not a surprise on boot.
+    ingest_on_startup: bool = False
+
+    @property
+    def files_configured(self) -> bool:
+        return bool(self.files_root)
+
     # --- Identity ---
     # Deliberately defaults to "dev", which refuses to start outside a
     # development environment. There is no configuration that silently accepts

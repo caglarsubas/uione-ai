@@ -80,8 +80,15 @@ UIONE_BRIEF_MAX_AGE_MINUTES=720
 UIONE_SCHEDULER_CONCURRENCY=2
 ```
 
-## Not yet done
+## Durability
 
-Schedules live in memory, so they are lost on restart — unlike approvals and
-autonomy, which are durable. The storage layer exists and this is a table away;
-it is called out here rather than left to be discovered.
+Schedules are stored, loaded at startup and written through whenever a job is
+added or runs. `last_run` in particular: a restored job that has forgotten when
+it last ran is either due immediately — every user's brief generating at once on
+boot — or not due until tomorrow, and a restart at 09:00 is an ordinary event.
+
+A storage failure while writing a job is logged and swallowed. Losing the brief
+that was just generated because the schedule row could not be updated would be
+the worse of the two outcomes.
+
+See [STORAGE.md](STORAGE.md).

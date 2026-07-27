@@ -234,8 +234,27 @@ onto these three fields is exactly where the next disagreement will be. Written
 this way deliberately: the semantics are pinned and testable now, so a connector
 author is checking a mapping rather than inventing one.
 
+## Persistence
+
+Documents are stored; the index is not. Postings are derived from the tokeniser
+and the stopword list, so a persisted index would silently disagree with its own
+documents the first time either changed — and a stale index is worse than one
+that takes a second to rebuild at startup.
+
+ACLs round-trip with the documents, and this is the assertion that matters: a
+restored corpus whose permissions did not survive is a leak, not an
+inconvenience. A permission revoked during a re-sync is written through
+immediately rather than at shutdown, because that write has a deadline.
+
+Sync watermarks are stored alongside. Without them an incremental sync after a
+restart either refetches the whole corpus or — worse — asks each source for
+changes "since now", so whatever changed while the service was down is never
+seen.
+
 ## Not yet
 
-Embeddings and reranking (lexical BM25 today), persistence — the index is
-in-memory and rebuilt on start — and a real Confluence or SharePoint connector to
-validate the mapping above against a live system.
+Embeddings and reranking (lexical BM25 today); a real Confluence or SharePoint
+connector to validate the ACL mapping above against a live system; and a
+*scheduled* re-sync. Ingestion runs at startup when `UIONE_INGEST_ON_STARTUP=1`,
+but nothing re-verifies permissions on a timer yet — and this module's own
+argument is that a revocation at the source is a live leak until it lands here.
