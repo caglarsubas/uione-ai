@@ -201,7 +201,7 @@ only against a fixture someone wrote is a connector that agrees with its author.
 | Connector | Verified against | Runs in CI |
 |---|---|---|
 | Mail (IMAP/SMTP) | Two throwaway IMAP servers and a real SMTP exchange | yes |
-| Calendar (CalDAV) | A real CalDAV server | yes |
+| Calendar (CalDAV) | A real CalDAV server, **including writing meetings to Radicale in CI** | yes |
 | File share | Real files, real `chmod`, real symlinks | yes |
 | Identity (OIDC) | A throwaway IdP with real JWKS, authorize and token endpoints | yes |
 | MCP (stdio) | A server built with the official SDK, plus a hostile one | yes |

@@ -8,6 +8,7 @@ from uione.connectors.calendar.backend import (
     InMemoryCalendarBackend,
     day_bounds,
 )
+from uione.connectors.calendar.compose import build_event, escape_text, fold, valid_address
 from uione.connectors.calendar.events import (
     SUPPORTED_FREQ,
     Event,
@@ -18,6 +19,10 @@ from uione.connectors.calendar.events import (
 from uione.connectors.calendar.source import build_calendar_source
 
 __all__ = [
+    "build_event",
+    "escape_text",
+    "fold",
+    "valid_address",
     "SUPPORTED_FREQ",
     "CalDavBackend",
     "CalendarAccount",

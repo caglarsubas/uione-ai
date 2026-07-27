@@ -45,6 +45,10 @@ class CalendarAccount:
 class CalendarBackend(Protocol):
     async def events_between(self, start: datetime, end: datetime) -> list[Event]: ...
 
+    async def create_event(self, uid: str, ics: str) -> str:
+        """Store a new event. Returns the URL it was written to."""
+        ...
+
 
 @dataclass
 class InMemoryCalendarBackend:
@@ -57,6 +61,24 @@ class InMemoryCalendarBackend:
         if self.fail_with:
             raise CalendarError(self.fail_with)
         return sorted((e for e in self.events if e.overlaps(start, end)), key=lambda e: e.start)
+
+    async def create_event(self, uid: str, ics: str) -> str:
+        """Parse and store, rather than keeping the text.
+
+        Parsing here is deliberate: it means a malformed VEVENT fails in the
+        fixture exactly as it would against a server, instead of a demo working
+        and the real thing rejecting it.
+        """
+        if self.fail_with:
+            raise CalendarError(self.fail_with)
+        if any(e.uid == uid for e in self.events):
+            raise CalendarError("an event with that identifier already exists")
+
+        parsed = parse_events(ics)
+        if not parsed:
+            raise CalendarError("no event found in the submitted calendar data")
+        self.events.extend(parsed)
+        return f"memory://{uid}.ics"
 
 
 #: A calendar-query REPORT. Asking the server to filter by time range is the
@@ -94,6 +116,49 @@ class CalDavBackend:
     ) -> None:
         self._account = account
         self._client = client
+
+    async def create_event(self, uid: str, ics: str) -> str:
+        """PUT a new event, refusing to overwrite an existing one.
+
+        `If-None-Match: *` is the whole point. Without it a UID collision — from
+        a retry, a duplicate submission, or two assistants acting at once —
+        silently replaces somebody's existing meeting, and the only evidence is
+        that it is no longer in their calendar.
+        """
+        account = self._account
+        url = account.url.rstrip("/") + f"/{uid}.ics"
+
+        client = self._client or httpx.AsyncClient(
+            timeout=account.timeout_s, verify=account.verify_tls
+        )
+        try:
+            response = await client.request(
+                "PUT",
+                url,
+                content=ics.encode("utf-8"),
+                headers={
+                    "Content-Type": "text/calendar; charset=utf-8",
+                    "If-None-Match": "*",
+                },
+                auth=(account.username, account.password) if account.username else None,
+            )
+        except httpx.HTTPError as exc:
+            raise CalendarError(f"calendar unreachable: {type(exc).__name__}") from exc
+        finally:
+            if self._client is None:
+                await client.aclose()
+
+        if response.status_code == 401:
+            raise CalendarError("calendar rejected the credentials")
+        if response.status_code == 412:
+            # The precondition we set. Reported as a conflict rather than a
+            # generic failure so a caller knows retrying with the same uid
+            # cannot work.
+            raise CalendarError("an event with that identifier already exists")
+        if response.is_error:
+            raise CalendarError(f"calendar refused the event ({response.status_code})")
+
+        return url
 
     async def events_between(self, start: datetime, end: datetime) -> list[Event]:
         account = self._account
