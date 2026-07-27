@@ -20,6 +20,7 @@ from uione.a2a import (
     GatewayAnswerer,
 )
 from uione.agent import AgentRuntime
+from uione.analysis import DEFAULT_METRICS, Detector, MetricRecorder
 from uione.config import Settings, get_settings
 from uione.connectors.bi import GrafanaBI, build_grafana_source, grafana_config
 from uione.connectors.calendar import CalDavBackend, CalendarAccount, build_calendar_source
@@ -70,12 +71,19 @@ from uione.mcphub import (
     ToolPolicy,
 )
 from uione.modelplane import ModelPlaneClient, TaskRouter
-from uione.proactive import BriefGenerator, BriefStore, Schedule, Scheduler
+from uione.proactive import (
+    BriefGenerator,
+    BriefStore,
+    Schedule,
+    Scheduler,
+    WeeklyReviewGenerator,
+)
 from uione.storage import (
     Database,
     DisclosureStore,
     DocumentStore,
     McpPinStore,
+    MetricStore,
     PersistentAutonomyPolicy,
     ScheduleStore,
     SqlActionJournal,
@@ -110,6 +118,8 @@ class Services:
     refresher: IngestionRefresher
     schedules: ScheduleStore
     disclosures: DisclosureStore
+    metrics: MetricStore
+    recorder: MetricRecorder
     mcp: McpSupervisor
 
 
@@ -410,12 +420,21 @@ async def build_services() -> Services:
     disclosures = DisclosureStore(database)
     await disclosures.load_into(contracts)
 
+    metrics = MetricStore(database)
+    recorder = MetricRecorder(gateway, store=metrics)
     scheduler = Scheduler(
         generator=generator,
         store=brief_store,
         principal_for=principal_for,
         max_concurrency=settings.scheduler_concurrency,
         persist=schedules.save,
+        recorder=recorder,
+        weekly=WeeklyReviewGenerator(
+            model=model,
+            store=metrics,
+            detector=Detector(),
+            titles={s.metric: s.title for s in DEFAULT_METRICS},
+        ),
     )
     scheduler.load(await schedules.load_all())
 
@@ -441,6 +460,8 @@ async def build_services() -> Services:
         refresher=refresher,
         schedules=schedules,
         disclosures=disclosures,
+        metrics=metrics,
+        recorder=recorder,
         mcp=mcp,
     )
 
