@@ -123,6 +123,27 @@ class Settings(BaseSettings):
     def gitea_configured(self) -> bool:
         return bool(self.gitea_url and self.gitea_token)
 
+    # --- Incidents (ServiceNow) ---
+    #: A ServiceNow instance. Free as a Personal Developer Instance, but that
+    #: needs an account the operator creates — see docs/VENDOR_ACCESS.md.
+    servicenow_url: str = ""
+    servicenow_username: str = ""
+    servicenow_password: str = ""
+
+    @property
+    def servicenow_configured(self) -> bool:
+        return bool(self.servicenow_url and self.servicenow_username)
+
+    # --- Claims ---
+    #: A claim system speaking the Guidewire Cloud API shape. No vendor in this
+    #: category offers free access, so this normally points at the mock estate.
+    claims_url: str = ""
+    claims_token: str = ""
+
+    @property
+    def claims_configured(self) -> bool:
+        return bool(self.claims_url)
+
     # --- MCP servers ---
     #: The third-party MCP servers this deployment connects to, as a JSON list.
     #: See docs/MCP.md. A malformed value fails startup rather than booting with

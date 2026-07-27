@@ -62,7 +62,19 @@ Mail is a real IMAP/SMTP connector (configure `UIONE_MAIL_IMAP_HOST`, otherwise 
 fixture is used); calendar is real CalDAV (`UIONE_CALENDAR_URL`); tasks are real
 Gitea or Forgejo issues (`UIONE_GITEA_URL` + `UIONE_GITEA_TOKEN`); a file share is
 indexed when `UIONE_FILES_ROOT` is set, with permissions read from the
-filesystem. Incidents remain a fixture.
+filesystem. Incidents speak the ServiceNow Table API (`UIONE_SERVICENOW_URL`) and
+claims a Guidewire-shaped Cloud API (`UIONE_CLAIMS_URL`) — both verified against
+mocks rather than the vendors, which no one can reach without a contract.
+
+### Run it without any vendor account
+
+```bash
+.venv/bin/python -m uione.vendormocks   # mock estate on 127.0.0.1:9101-9103
+```
+
+Seeded with a plausible working morning and spoken to over real HTTP, so the
+same connector code runs as it would in production with only the base URL
+different.
 
 Everything a user configures survives a restart — their brief schedule, what
 their assistant may disclose about them, and the indexed corpus with its

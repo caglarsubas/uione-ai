@@ -27,6 +27,15 @@ real socket for the estate, where the connector's own HTTP handling is exercised
 end to end.
 """
 
+from uione.vendormocks.claims import build_claims_mock, seed_claims
 from uione.vendormocks.gitea import build_gitea_mock, seed_gitea
+from uione.vendormocks.servicenow import build_servicenow_mock, seed_servicenow
 
-__all__ = ["build_gitea_mock", "seed_gitea"]
+__all__ = [
+    "build_claims_mock",
+    "build_gitea_mock",
+    "build_servicenow_mock",
+    "seed_claims",
+    "seed_gitea",
+    "seed_servicenow",
+]

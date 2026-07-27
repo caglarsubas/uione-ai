@@ -22,8 +22,14 @@ from uione.a2a import (
 from uione.agent import AgentRuntime
 from uione.config import Settings, get_settings
 from uione.connectors.calendar import CalDavBackend, CalendarAccount, build_calendar_source
+from uione.connectors.claims import ClaimsBackend, build_claims_source, claims_config
 from uione.connectors.demo import build_all
 from uione.connectors.files import build_file_ingestion, current_identity_map
+from uione.connectors.incidents import (
+    ServiceNowIncidents,
+    build_servicenow_source,
+    servicenow_config,
+)
 from uione.connectors.mail import (
     ImapMailBackend,
     MailAccount,
@@ -119,11 +125,16 @@ def default_policy() -> ToolPolicy:
         [
             Grant(
                 role="analyst",
-                tools=frozenset({"mail.*", "tasks.*", "incidents.*", "calendar.*"}),
+                tools=frozenset({"mail.*", "tasks.*", "incidents.*", "calendar.*", "claims.*"}),
                 max_risk=RiskClass.READ,
             ),
             Grant(role="analyst", tools=frozenset({"tasks.update_issue"})),
             Grant(role="analyst", tools=frozenset({"mail.send_reply"})),
+            # Named one at a time, like every other write. Both remain subject to
+            # the autonomy ladder, so the grant is permission to *ask*, not
+            # permission to act unattended.
+            Grant(role="analyst", tools=frozenset({"incidents.update_incident"})),
+            Grant(role="analyst", tools=frozenset({"claims.add_note"})),
             # Retrieval is read-only and filters by the calling principal, so a
             # broad grant here widens nothing: the index refuses what the user
             # may not read regardless of the grant.
@@ -185,6 +196,37 @@ def build_connectors(settings: Settings) -> list:
         log.info("connectors.tasks_backend", backend="gitea", url=settings.gitea_url)
     else:
         log.info("connectors.tasks_backend", backend="fixture")
+
+    if settings.servicenow_configured:
+        sources = [s for s in sources if s.name != "incidents"]
+        sources.append(
+            build_servicenow_source(
+                ServiceNowIncidents(
+                    servicenow_config(
+                        settings.servicenow_url,
+                        settings.servicenow_username,
+                        settings.servicenow_password,
+                    ),
+                    user=settings.servicenow_username,
+                )
+            )
+        )
+        log.info("connectors.incidents_backend", backend="servicenow", url=settings.servicenow_url)
+    else:
+        log.info("connectors.incidents_backend", backend="fixture")
+
+    if settings.claims_configured:
+        # No fixture to replace: claims are a capability this product did not
+        # have until now, because no vendor in the category can be reached.
+        sources.append(
+            build_claims_source(
+                ClaimsBackend(
+                    claims_config(settings.claims_url, settings.claims_token),
+                    user=settings.mail_username or "uione",
+                )
+            )
+        )
+        log.info("connectors.claims_backend", backend="cloud-api", url=settings.claims_url)
 
     if settings.calendar_configured:
         account = CalendarAccount(

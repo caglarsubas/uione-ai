@@ -206,6 +206,16 @@ only against a fixture someone wrote is a connector that agrees with its author.
 | Identity (OIDC) | A throwaway IdP with real JWKS, authorize and token endpoints | yes |
 | MCP (stdio) | A server built with the official SDK, plus a hostile one | yes |
 | **Tasks (Gitea/Forgejo)** | **A real Gitea 1.24 instance in Docker**, and a mock in CI | yes (mock), opt-in (real) |
+| Incidents (ServiceNow) | A mock only — a PDI is free but needs an account | yes (mock) |
+| Claims (Guidewire-shaped) | A mock only — **no free access exists in this category** | yes (mock) |
+
+The last two rows are the honest version of "we support ServiceNow and
+Guidewire". What the tests prove is that the connector handles the *shapes*
+correctly, and the shapes are the part that transfers between a mock and the
+real thing: ServiceNow's three-way-polymorphic fields, Guidewire's
+optimistic-locking checksum, and money that must never become a float. Field
+names may well need adjusting on first contact with a real instance. Those
+behaviours will not.
 
 The Gitea row is the pattern for every vendor connector from here. The mock runs
 everywhere; the real instance runs when `UIONE_TEST_GITEA_URL` and
