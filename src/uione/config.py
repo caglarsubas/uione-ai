@@ -155,6 +155,16 @@ class Settings(BaseSettings):
     def grafana_configured(self) -> bool:
         return bool(self.grafana_url and self.grafana_token)
 
+    # --- Chat (Mattermost) ---
+    #: A Mattermost or compatible instance. Self-hostable, so it is verified
+    #: against a real one — see docs/VENDOR_ACCESS.md.
+    mattermost_url: str = ""
+    mattermost_token: str = ""
+
+    @property
+    def mattermost_configured(self) -> bool:
+        return bool(self.mattermost_url and self.mattermost_token)
+
     # --- MCP servers ---
     #: The third-party MCP servers this deployment connects to, as a JSON list.
     #: See docs/MCP.md. A malformed value fails startup rather than booting with

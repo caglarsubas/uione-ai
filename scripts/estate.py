@@ -42,11 +42,13 @@ ENV_FILE = ROOT / ".env.estate"
 
 GITEA = "http://127.0.0.1:3300"
 GRAFANA = "http://127.0.0.1:3400"
+MATTERMOST = "http://127.0.0.1:8065"
 
 GITEA_USER = "uione"
 GITEA_PASSWORD = "uione-dev-pw"
 GRAFANA_PASSWORD = "uione-dev-pw"
 REPO = "payments-platform"
+MM_PASSWORD = "UiOne-dev-pw1"  # Mattermost enforces a length and character mix.
 
 #: How long to wait for a container to become useful. Gitea's first boot
 #: migrates a database, which is slower than its healthcheck interval suggests.
@@ -352,10 +354,157 @@ def _grafana_alert_rule(admin: tuple[str, str], datasource_uid: str, folder_uid:
         print(f"  alert rule not created: {status} {payload}")
 
 
+# -- Mattermost ------------------------------------------------------------
+
+
+def _mm_login(username: str) -> str:
+    """Log in and return the session token, which arrives in a *header*.
+
+    Mattermost puts it in `Token`, not in the response body — the body is the
+    user object. Reading the body for a token yields None and a confusing
+    KeyError three calls later.
+    """
+    body = json.dumps({"login_id": username, "password": MM_PASSWORD}).encode()
+    req = urllib.request.Request(f"{MATTERMOST}/api/v4/users/login", data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return response.headers.get("Token", "")
+    except (OSError, http.client.HTTPException):
+        return ""
+
+
+def _mm(
+    path: str, *, method: str = "GET", body: object = None, token: str = ""
+) -> tuple[int, object]:
+    return request(
+        f"{MATTERMOST}{path}",
+        method=method,
+        body=body,
+        headers={"Authorization": f"Bearer {token}"} if token else None,
+    )
+
+
+def provision_mattermost() -> str:
+    print("\nMattermost")
+    # Slower than the others: the image is amd64-only, so on Apple silicon this
+    # is an emulated first boot with a schema migration in it.
+    wait_for("  mattermost", f"{MATTERMOST}/api/v4/system/ping", timeout_s=300)
+
+    # The first account created on an open server becomes system admin. On a
+    # second run this 400s because the username is taken, which is fine.
+    _mm(
+        "/api/v4/users",
+        method="POST",
+        body={"email": "uione@corp.example", "username": GITEA_USER, "password": MM_PASSWORD},
+    )
+    session = _mm_login(GITEA_USER)
+    if not session:
+        raise SystemExit("could not log in to Mattermost")
+
+    me = _mm("/api/v4/users/me", token=session)[1]
+    print(f"  user {me['username']}")
+
+    # Tokens cannot be read back, so revoke and reissue, as elsewhere.
+    for existing in _mm(f"/api/v4/users/{me['id']}/tokens", token=session)[1] or []:
+        _mm(
+            "/api/v4/users/tokens/revoke",
+            method="POST",
+            body={"token_id": existing["id"]},
+            token=session,
+        )
+    status, payload = _mm(
+        f"/api/v4/users/{me['id']}/tokens",
+        method="POST",
+        body={"description": "uione-estate"},
+        token=session,
+    )
+    if status not in (200, 201) or not isinstance(payload, dict) or "token" not in payload:
+        raise SystemExit(f"could not create a Mattermost token: {status} {payload}")
+    token = str(payload["token"])
+    print(f"  token {token[:10]}…")
+
+    team = _seed_mattermost_team(session, me)
+    _seed_mattermost_conversation(session, me, team)
+    return token
+
+
+def _seed_mattermost_team(session: str, me: dict) -> dict:
+    status, team = _mm(
+        "/api/v4/teams",
+        method="POST",
+        body={"name": "payments", "display_name": "Payments", "type": "O"},
+        token=session,
+    )
+    if status not in (200, 201):
+        for existing in _mm("/api/v4/users/me/teams", token=session)[1] or []:
+            if existing.get("name") == "payments":
+                return existing
+        raise SystemExit("could not create or find the payments team")
+    return team
+
+
+def _seed_mattermost_conversation(session: str, me: dict, team: dict) -> None:
+    status, channel = _mm(
+        "/api/v4/channels",
+        method="POST",
+        body={
+            "team_id": team["id"],
+            "name": "payments-ops",
+            "display_name": "Payments Ops",
+            "type": "O",
+        },
+        token=session,
+    )
+    if status not in (200, 201):
+        _, channel = _mm(f"/api/v4/teams/{team['id']}/channels/name/payments-ops", token=session)
+
+    # Messages must come from somebody else — your own posts are read by
+    # definition, so a single-user estate has nothing unread to demonstrate.
+    status, other = _mm(
+        "/api/v4/users",
+        method="POST",
+        body={"email": "bora@corp.example", "username": "bora", "password": MM_PASSWORD},
+        token=session,
+    )
+    if status not in (200, 201):
+        _, other = _mm("/api/v4/users/username/bora", token=session)
+    _mm(
+        f"/api/v4/teams/{team['id']}/members",
+        method="POST",
+        body={"team_id": team["id"], "user_id": other["id"]},
+        token=session,
+    )
+    _mm(
+        f"/api/v4/channels/{channel['id']}/members",
+        method="POST",
+        body={"user_id": other["id"]},
+        token=session,
+    )
+
+    existing = _mm(f"/api/v4/channels/{channel['id']}/posts?per_page=50", token=session)[1]
+    said = {p.get("message") for p in (existing or {}).get("posts", {}).values()}
+
+    their_session = _mm_login("bora")
+    for message in [
+        "Acquirer confirmed a config change on their side at 06:10.",
+        f"@{me['username']} can you take the settlement batch? PAY-1182 is still failing.",
+        "I have paused the retry job until we hear back.",
+    ]:
+        if message not in said:
+            _mm(
+                "/api/v4/posts",
+                method="POST",
+                body={"channel_id": channel["id"], "message": message},
+                token=their_session,
+            )
+    print("  #payments-ops seeded")
+
+
 # -- output ----------------------------------------------------------------
 
 
-def write_env(gitea_token: str, grafana_token: str) -> None:
+def write_env(gitea_token: str, grafana_token: str, mattermost_token: str) -> None:
     ENV_FILE.write_text(
         "\n".join(
             [
@@ -367,6 +516,9 @@ def write_env(gitea_token: str, grafana_token: str) -> None:
                 "",
                 f"UIONE_GRAFANA_URL={GRAFANA}",
                 f"UIONE_GRAFANA_TOKEN={grafana_token}",
+                "",
+                f"UIONE_MATTERMOST_URL={MATTERMOST}",
+                f"UIONE_MATTERMOST_TOKEN={mattermost_token}",
                 "",
                 "# Mocks — see docs/VENDOR_ACCESS.md for why these are not real systems.",
                 "UIONE_SERVICENOW_URL=http://127.0.0.1:9102",
@@ -390,7 +542,8 @@ def up() -> None:
 
     gitea_token = provision_gitea()
     grafana_token = provision_grafana()
-    write_env(gitea_token, grafana_token)
+    mattermost_token = provision_mattermost()
+    write_env(gitea_token, grafana_token, mattermost_token)
 
     print(
         "\nNext:\n"
@@ -401,7 +554,11 @@ def up() -> None:
 
 
 def status() -> None:
-    for name, url in [("gitea", f"{GITEA}/api/v1/version"), ("grafana", f"{GRAFANA}/api/health")]:
+    for name, url in [
+        ("gitea", f"{GITEA}/api/v1/version"),
+        ("grafana", f"{GRAFANA}/api/health"),
+        ("mattermost", f"{MATTERMOST}/api/v4/system/ping"),
+    ]:
         code, _ = request(url)
         print(f"  {name:10} {'up' if code == 200 else 'down'}  {url}")
     for name, port in [("servicenow", 9102), ("claims", 9103), ("gitea-mock", 9101)]:

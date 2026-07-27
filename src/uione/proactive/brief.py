@@ -75,6 +75,7 @@ DEFAULT_SOURCES: tuple[BriefSource, ...] = (
         alternatives=("incidents.my_incidents",),
     ),
     BriefSource("mail", "mail.list_unread", {"limit": 10}, heading="Unread mail"),
+    BriefSource("chat", "chat.unread_messages", {"limit": 10}, heading="Waiting in chat"),
     BriefSource("calendar", "calendar.today", heading="Today's schedule"),
     BriefSource(
         "tasks",
