@@ -192,3 +192,26 @@ UIONE_BRIEF_TIMEZONE=Europe/Istanbul # also the calendar's display timezone
 `tasks` and `incidents` remain fixtures (`connectors/demo.py`). They follow the
 same declaration discipline, so replacing them with real backends is a backend
 swap rather than a rewrite.
+
+## What each connector has actually been verified against
+
+The distinction this table draws is the one that matters: a connector tested
+only against a fixture someone wrote is a connector that agrees with its author.
+
+| Connector | Verified against | Runs in CI |
+|---|---|---|
+| Mail (IMAP/SMTP) | Two throwaway IMAP servers and a real SMTP exchange | yes |
+| Calendar (CalDAV) | A real CalDAV server | yes |
+| File share | Real files, real `chmod`, real symlinks | yes |
+| Identity (OIDC) | A throwaway IdP with real JWKS, authorize and token endpoints | yes |
+| MCP (stdio) | A server built with the official SDK, plus a hostile one | yes |
+| **Tasks (Gitea/Forgejo)** | **A real Gitea 1.24 instance in Docker**, and a mock in CI | yes (mock), opt-in (real) |
+
+The Gitea row is the pattern for every vendor connector from here. The mock runs
+everywhere; the real instance runs when `UIONE_TEST_GITEA_URL` and
+`UIONE_TEST_GITEA_TOKEN` are set, and it is what keeps the mock honest. The first
+draft of that mock returned `repo` on each issue because that is the obvious
+name. Gitea returns `repository`. Every mock test passed.
+
+See [VENDOR_ACCESS.md](VENDOR_ACCESS.md) for which systems can be reached at all,
+and what a mock is and is not allowed to claim.
