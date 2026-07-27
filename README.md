@@ -42,6 +42,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Governed MCP gateway: deny-by-default policy, audit tap, rate limits, circuit breaking | `src/uione/mcphub/` |
 | Real IMAP/SMTP mail connector | `src/uione/connectors/mail/` |
 | Real CalDAV calendar connector | `src/uione/connectors/calendar/` |
+| File share connector with POSIX ACL derivation | `src/uione/connectors/files/` |
 | Agent loop with tool-call repair and name resolution | `src/uione/agent/` |
 | Graduated autonomy, approvals, undo journal, injection containment | `src/uione/governance/` |
 | Work graph: deterministic cross-system entity resolution | `src/uione/knowledge/` |

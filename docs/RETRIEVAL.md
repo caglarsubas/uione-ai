@@ -138,12 +138,49 @@ bob   searches "compensation"  → Salary banding review
 permission re-sync             → 0 removed, index still holds 3
 ```
 
+### A file share: the first contested permissions
+
+Mail has one reader. A file share has owners, groups, and — the part naive
+mirroring gets wrong — a **containing directory chain**.
+
+**The mistake that publishes things.** A file with mode `0644` looks readable by
+everyone. Inside a `0700` directory nobody but the owner can reach it. Mirroring
+the file's own bits alone hands it to the organisation. So the effective ACL is
+the *intersection down the chain*, and directories need the execute bit too —
+read without execute lists a directory but does not let you enter it.
+
+**Group membership is the directory's answer, not ours.** We map a gid to a group
+name and stop. An index keeping its own opinion of who is in a group will drift.
+
+**Unresolvable means excluded.** An unmapped uid or gid produces no grant. A
+numeric id we cannot name is one we cannot reason about, and the skipped count is
+surfaced so an operator sees a mapping problem rather than a quiet corpus of
+unreachable files.
+
+**Symlinks are checked.** A link out of the share would otherwise be indexed
+under the *share's* permissions, publishing content whose real ACL was never
+consulted.
+
+The identity map is explicit rather than read from `/etc/passwd`: the account
+running the connector is rarely the account model the application authenticates
+against, and equating them silently gives a service account an employee's
+permissions.
+
+#### The test setup this corrected
+
+Every "world readable" assertion failed on the first run. The cause was not the
+code — pytest's `tmp_path` is `0700`, and the chain rule correctly narrowed
+everything to the owner. Real share mounts are `0755`. The chain check caught an
+unrealistic test setup, which is a reasonable way for it to earn its place.
+
+Tests write real files and `chmod` them, so derivation is checked against the
+operating system's actual answer rather than a fixture written to match my
+assumptions.
+
 ## Not yet
 
-Embeddings and reranking (lexical BM25 today), ACL derivation for sources with
-*real* group permissions — Confluence, SharePoint, a file share — and
-persistence: the index is in-memory and rebuilt on start.
-
-Mail proves the mechanism against an unambiguous access model. A source with
-genuine group ACLs is where the design will first be argued with, and that is the
-next thing worth doing.
+Embeddings and reranking (lexical BM25 today), persistence — the index is
+in-memory and rebuilt on start — and ACL derivation for systems with *inherited*
+permission models: SharePoint's broken inheritance, Confluence space-versus-page
+restrictions, nested LDAP groups. POSIX is contested but shallow; those are where
+the next disagreements live.
