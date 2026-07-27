@@ -11,6 +11,13 @@ from uione.knowledge.index import (
     SearchHit,
     tokenize,
 )
+from uione.knowledge.ingest import (
+    CallableSource,
+    IngestionSource,
+    Ingestor,
+    SyncResult,
+)
+from uione.knowledge.mail_source import build_mail_ingestion
 from uione.knowledge.source import build_knowledge_source
 
 __all__ = [
@@ -28,7 +35,12 @@ __all__ = [
     "SearchHit",
     "Visibility",
     "WorkGraph",
+    "CallableSource",
+    "IngestionSource",
+    "Ingestor",
+    "SyncResult",
     "build_knowledge_source",
+    "build_mail_ingestion",
     "entity",
     "extract_entities",
     "extract_message_ids",

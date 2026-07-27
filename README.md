@@ -46,6 +46,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Graduated autonomy, approvals, undo journal, injection containment | `src/uione/governance/` |
 | Work graph: deterministic cross-system entity resolution | `src/uione/knowledge/` |
 | Permission-aware retrieval: ACL-filtered BM25 index | `src/uione/knowledge/` |
+| Ingestion with ACL derivation and permission re-sync | `src/uione/knowledge/` |
 | Eval harness: fixture-exact golden tasks gating model changes | `src/uione/evals/` |
 | Durable audit, approvals, undo journal and autonomy records | `src/uione/storage/` |
 | Scheduler: briefs pre-generated ahead of the working day | `src/uione/proactive/` |
