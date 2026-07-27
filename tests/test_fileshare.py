@@ -11,6 +11,7 @@ than against a fixture written to match my assumptions.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 
@@ -45,11 +46,35 @@ def share(tmp_path: Path) -> Path:
     perfectly correct implementation. Real share mounts are 0755. This caught an
     unrealistic test setup rather than a bug, which is the chain check earning
     its place.
+
+    Permissions are restored on teardown. These tests deliberately create
+    unreadable files and untraversable directories, and pytest cannot delete
+    what it cannot enter — without this it leaves undeletable garbage behind on
+    every run.
     """
     root = tmp_path / "share"
     root.mkdir()
     root.chmod(0o755)
-    return root
+    yield root
+    _make_removable(root)
+
+
+def _make_removable(root: Path) -> None:
+    """Restore permissions so the temporary tree can be deleted.
+
+    Top-down, fixing each directory *before* descending: a directory without its
+    execute bit cannot be entered, so a bottom-up walk never reaches the files
+    inside it and pytest is left with something it cannot remove.
+    """
+    with contextlib.suppress(OSError):
+        root.chmod(0o700)
+    for parent, directories, files in os.walk(root):
+        for name in directories:
+            with contextlib.suppress(OSError):
+                Path(parent, name).chmod(0o700)
+        for name in files:
+            with contextlib.suppress(OSError):
+                Path(parent, name).chmod(0o600)
 
 
 def write(root: Path, relative: str, text: str, mode: int = 0o644) -> Path:
@@ -188,6 +213,7 @@ def test_a_symlink_out_of_the_share_is_detected(tmp_path: Path) -> None:
     link.symlink_to(outside)
 
     assert escapes_root(link, share)
+    outside.unlink()
 
 
 def test_a_symlink_within_the_share_is_allowed(tmp_path: Path) -> None:
@@ -210,6 +236,7 @@ def test_scanning_skips_escaping_symlinks(tmp_path: Path) -> None:
 
     assert [d.title for d in documents] == ["ok.md"]
     assert counters["skipped_escape"] == 1
+    outside.unlink()
 
 
 # -- what gets indexed at all ----------------------------------------------
