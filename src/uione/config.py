@@ -112,6 +112,17 @@ class Settings(BaseSettings):
         hour, _, minute = self.brief_time.partition(":")
         return _time(int(hour), int(minute or 0))
 
+    # --- Task system (Gitea / Forgejo) ---
+    #: A Gitea or Forgejo instance. Self-hostable, which is why it is the first
+    #: real task connector — see docs/VENDOR_ACCESS.md.
+    gitea_url: str = ""
+    gitea_token: str = ""
+    gitea_verify_tls: bool = True
+
+    @property
+    def gitea_configured(self) -> bool:
+        return bool(self.gitea_url and self.gitea_token)
+
     # --- MCP servers ---
     #: The third-party MCP servers this deployment connects to, as a JSON list.
     #: See docs/MCP.md. A malformed value fails startup rather than booting with

@@ -30,6 +30,7 @@ from uione.connectors.mail import (
     build_mail_source,
     register_mail_undo,
 )
+from uione.connectors.tasks import GiteaTasks, build_gitea_source, gitea_config
 from uione.governance import EgressPolicy, Governor
 from uione.identity import (
     AuthError,
@@ -164,6 +165,26 @@ def build_connectors(settings: Settings) -> list:
         log.info("connectors.mail_backend", backend="imap", host=settings.mail_imap_host)
     else:
         log.info("connectors.mail_backend", backend="fixture")
+
+    if settings.gitea_configured:
+        # Replaces the fixture rather than joining it: two servers named "tasks"
+        # would shadow each other in the catalog, and which answered would depend
+        # on registration order.
+        sources = [s for s in sources if s.name != "tasks"]
+        sources.append(
+            build_gitea_source(
+                GiteaTasks(
+                    gitea_config(
+                        settings.gitea_url,
+                        settings.gitea_token,
+                        verify_tls=settings.gitea_verify_tls,
+                    )
+                )
+            )
+        )
+        log.info("connectors.tasks_backend", backend="gitea", url=settings.gitea_url)
+    else:
+        log.info("connectors.tasks_backend", backend="fixture")
 
     if settings.calendar_configured:
         account = CalendarAccount(

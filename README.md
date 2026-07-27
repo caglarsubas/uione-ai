@@ -59,9 +59,10 @@ python scripts/demo_brief.py --model ministral-3:8b
 | HTTP API: chat, brief, approval queue, transparency page | `src/uione/api/` |
 
 Mail is a real IMAP/SMTP connector (configure `UIONE_MAIL_IMAP_HOST`, otherwise a
-fixture is used); calendar is real CalDAV (`UIONE_CALENDAR_URL`); a file share is
+fixture is used); calendar is real CalDAV (`UIONE_CALENDAR_URL`); tasks are real
+Gitea or Forgejo issues (`UIONE_GITEA_URL` + `UIONE_GITEA_TOKEN`); a file share is
 indexed when `UIONE_FILES_ROOT` is set, with permissions read from the
-filesystem. Tasks and incidents remain fixtures.
+filesystem. Incidents remain a fixture.
 
 Everything a user configures survives a restart — their brief schedule, what
 their assistant may disclose about them, and the indexed corpus with its
@@ -91,6 +92,7 @@ is at `/system/health`.
 - [Identity](docs/IDENTITY.md) — OIDC, the auth modes, and why every one fails closed.
 - [Login](docs/LOGIN.md) — the authorization-code flow, PKCE, and revocable sessions.
 - [A2A](docs/A2A.md) — assistant-to-assistant collaboration, and the disclosure contracts that make it safe.
+- [Vendor access](docs/VENDOR_ACCESS.md) — which systems can be integrated against for free, in what order, and what a mock may claim.
 - [MCP](docs/MCP.md) — the real client, and why a server may raise its own risk but never lower it.
 - [Connectors](docs/CONNECTORS.md) — the mail connector, and what every connector must declare.
 
