@@ -16,6 +16,7 @@ from uione.mcphub.gateway import (
     McpGateway,
     ToolNotFoundError,
 )
+from uione.mcphub.pinning import PinDecision, apply_pin, fingerprint
 from uione.mcphub.policy import Grant, RateLimiter, ToolPolicy
 from uione.mcphub.source import (
     InMemoryToolSource,
@@ -46,6 +47,9 @@ from uione.mcphub.types import (
 )
 
 __all__ = [
+    "fingerprint",
+    "apply_pin",
+    "PinDecision",
     "parse_server_config",
     "describe_remote_tool",
     "SUPPORTED_PROTOCOL_VERSIONS",

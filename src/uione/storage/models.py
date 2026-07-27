@@ -204,3 +204,21 @@ class SyncWatermarkRow(Base):
 
     source: Mapped[str] = mapped_column(String(128), primary_key=True)
     last_sync: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class McpPinRow(Base):
+    """What a third-party MCP server declared when it was approved.
+
+    Durable because the attack it defends against is a *change over time*, and a
+    pin that lives in memory approves whatever the server says at each restart —
+    which is precisely the moment a rug pull lands.
+    """
+
+    __tablename__ = "mcp_pins"
+
+    server: Mapped[str] = mapped_column(String(128), primary_key=True)
+    #: Tool name to fingerprint of its description and parameters.
+    tools: Mapped[dict] = mapped_column(JSON, default=dict)
+    approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    approved_by: Mapped[str] = mapped_column(String(255), default="first-use")
+    note: Mapped[str] = mapped_column(Text, default="")

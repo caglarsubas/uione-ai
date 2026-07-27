@@ -8,6 +8,7 @@ from uione.storage.models import (
     DisclosureRow,
     DocumentRow,
     JournalRow,
+    McpPinRow,
     PendingActionRow,
     ScheduleRow,
     SessionRow,
@@ -22,6 +23,7 @@ from uione.storage.repositories import (
 from uione.storage.state import (
     DisclosureStore,
     DocumentStore,
+    McpPinStore,
     ScheduleStore,
     WatermarkStore,
 )
@@ -35,6 +37,8 @@ __all__ = [
     "DisclosureStore",
     "DocumentRow",
     "DocumentStore",
+    "McpPinRow",
+    "McpPinStore",
     "JournalRow",
     "PendingActionRow",
     "ScheduleRow",
