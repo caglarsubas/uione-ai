@@ -66,15 +66,23 @@ filesystem. Incidents speak the ServiceNow Table API (`UIONE_SERVICENOW_URL`) an
 claims a Guidewire-shaped Cloud API (`UIONE_CLAIMS_URL`) — both verified against
 mocks rather than the vendors, which no one can reach without a contract.
 
-### Run it without any vendor account
+### Run the whole thing without a single vendor account
 
 ```bash
-.venv/bin/python -m uione.vendormocks   # mock estate on 127.0.0.1:9101-9103
+make estate
 ```
 
-Seeded with a plausible working morning and spoken to over real HTTP, so the
-same connector code runs as it would in production with only the base URL
-different.
+Starts a real Gitea and a real Grafana in Docker, provisions them, seeds a
+plausible working morning, and writes `.env.estate`. Then `make mocks` in another
+shell for the systems nobody can reach without a contract, and:
+
+```bash
+set -a; . ./.env.estate; set +a
+make run
+```
+
+Half the estate is genuinely real and half is mocked, and
+[ESTATE.md](docs/ESTATE.md) says which is which rather than blurring it.
 
 Everything a user configures survives a restart — their brief schedule, what
 their assistant may disclose about them, and the indexed corpus with its
@@ -104,6 +112,7 @@ is at `/system/health`.
 - [Identity](docs/IDENTITY.md) — OIDC, the auth modes, and why every one fails closed.
 - [Login](docs/LOGIN.md) — the authorization-code flow, PKCE, and revocable sessions.
 - [A2A](docs/A2A.md) — assistant-to-assistant collaboration, and the disclosure contracts that make it safe.
+- [The demo estate](docs/ESTATE.md) — one command to a running product, half real and half mocked.
 - [BI and anomalies](docs/BI.md) — Grafana alerts, and why the detector is tuned against firing.
 - [Vendor access](docs/VENDOR_ACCESS.md) — which systems can be integrated against for free, in what order, and what a mock may claim.
 - [MCP](docs/MCP.md) — the real client, and why a server may raise its own risk but never lower it.

@@ -1,0 +1,60 @@
+# The self-hostable half of the demo estate.
+#
+# Only tier-A systems live here — the ones an enterprise can run behind its own
+# firewall, which is also why they are the ones this project verifies against
+# rather than mocks. Everything else in the estate is a mock served by
+# `python -m uione.vendormocks`; see docs/VENDOR_ACCESS.md for why.
+#
+# Ports are deliberately not the defaults. A developer machine usually already
+# has something on 3000, and an estate that collides with it fails in a way that
+# looks like a bug in this project.
+
+name: uione-estate
+
+services:
+  gitea:
+    image: gitea/gitea:1.24
+    container_name: uione-gitea
+    environment:
+      # Skips the interactive installer. Without it the API answers HTML for
+      # every request and the connector reports "expected JSON, received HTML",
+      # which is the right message but a confusing first impression.
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__server__ROOT_URL: http://localhost:3300/
+      # Nobody but the provisioned account should exist. This is a demo estate,
+      # not a service.
+      GITEA__service__DISABLE_REGISTRATION: "true"
+    ports:
+      - "127.0.0.1:3300:3000"
+    volumes:
+      - gitea-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/v1/version"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    container_name: uione-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: uione-dev-pw
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Quietens the phone-home checks. An on-premise product's demo estate
+      # should not be making outbound calls either.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "127.0.0.1:3400:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  gitea-data:
+  grafana-data:
