@@ -233,6 +233,16 @@ class DocumentIndex:
             return None
         return document
 
+    def document_ids_for_source(self, source: str) -> list[str]:
+        """Ids from one connector. Administrative, so it takes no principal —
+        it returns identifiers, never content."""
+        return [d.id for d in self._documents.values() if d.source == source]
+
+    def acl_of(self, document_id: str) -> AccessControl | None:
+        """The stored ACL, for comparison against the source during re-sync."""
+        document = self._documents.get(document_id)
+        return document.acl if document else None
+
     def visible_count(self, principal: Principal) -> int:
         return len(self._readable(principal))
 
