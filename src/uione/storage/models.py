@@ -222,3 +222,27 @@ class McpPinRow(Base):
     approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     approved_by: Mapped[str] = mapped_column(String(255), default="first-use")
     note: Mapped[str] = mapped_column(Text, default="")
+
+
+class MetricPointRow(Base):
+    """One number, for one person, on one day.
+
+    A daily census rather than a time series database. The volume is a handful
+    of rows per person per day, which after a year is still small enough that
+    nobody has to think about it — and a product that quietly grows an
+    unbounded metrics table on an air-gapped box is one somebody eventually has
+    to delete in a hurry.
+
+    Keyed on the *day* rather than the timestamp so a scheduler that fires twice
+    — a restart, a retried tick — overwrites rather than double-counting. Two
+    entries for one Tuesday would make the detector's weekday baseline quietly
+    wrong.
+    """
+
+    __tablename__ = "metric_points"
+
+    principal_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    metric: Mapped[str] = mapped_column(String(128), primary_key=True)
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)
+    value: Mapped[float] = mapped_column(Float, default=0.0)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

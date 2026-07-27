@@ -22,12 +22,13 @@ second to rebuild.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 
 import structlog
 from sqlalchemy import select
 
 from uione.a2a.contracts import ContractRegistry, DisclosureContract, Facet
+from uione.analysis.anomaly import Point
 from uione.knowledge.documents import AccessControl, Document, Visibility
 from uione.knowledge.index import DocumentIndex
 from uione.proactive.schedule import JobKind, Schedule, ScheduledJob
@@ -36,6 +37,7 @@ from uione.storage.models import (
     DisclosureRow,
     DocumentRow,
     McpPinRow,
+    MetricPointRow,
     ScheduleRow,
     SyncWatermarkRow,
 )
@@ -331,3 +333,58 @@ class McpPinStore:
                 return False
             await session.delete(row)
             return True
+
+
+class MetricStore:
+    """The daily census, kept long enough to have an opinion about a week."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    async def record(self, principal_id: str, values: dict[str, float], *, at: datetime) -> int:
+        """Write one day's numbers, replacing any already there for that day.
+
+        Replacing rather than appending is what makes a retried scheduler tick
+        harmless. Two rows for one Tuesday would quietly skew the detector's
+        weekday baseline, and nothing would ever surface it.
+        """
+        day = at.astimezone(UTC).date().isoformat()
+        async with self._db.session() as session:
+            for metric, value in values.items():
+                row = await session.get(MetricPointRow, (principal_id, metric, day))
+                if row is None:
+                    row = MetricPointRow(principal_id=principal_id, metric=metric, day=day)
+                    session.add(row)
+                row.value = float(value)
+                row.at = at
+        return len(values)
+
+    async def history(self, principal_id: str, *, days: int = 60) -> dict[str, list[Point]]:
+        """Every metric's series, oldest first.
+
+        Bounded by `days` because the detector only ever looks back a few weeks,
+        and loading a year to compute a Tuesday baseline is work nobody asked
+        for.
+        """
+        cutoff = (datetime.now(UTC) - timedelta(days=days)).date().isoformat()
+        async with self._db.session() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(MetricPointRow)
+                        .where(MetricPointRow.principal_id == principal_id)
+                        .where(MetricPointRow.day >= cutoff)
+                        .order_by(MetricPointRow.day)
+                    )
+                ).scalars()
+            )
+
+        series: dict[str, list[Point]] = {}
+        for row in rows:
+            when = datetime.fromisoformat(row.day).replace(tzinfo=UTC)
+            series.setdefault(row.metric, []).append(Point(at=when, value=row.value))
+        return series
+
+    async def latest(self, principal_id: str) -> dict[str, float]:
+        series = await self.history(principal_id, days=7)
+        return {metric: points[-1].value for metric, points in series.items() if points}

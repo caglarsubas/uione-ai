@@ -10,8 +10,18 @@ from uione.proactive.brief import (
 )
 from uione.proactive.schedule import WEEKDAYS, JobKind, Schedule, ScheduledJob
 from uione.proactive.scheduler import BriefStore, Scheduler, SchedulerStats, StoredBrief
+from uione.proactive.weekly import (
+    Movement,
+    WeeklyReport,
+    WeeklyReviewGenerator,
+    compare_weeks,
+)
 
 __all__ = [
+    "Movement",
+    "WeeklyReport",
+    "WeeklyReviewGenerator",
+    "compare_weeks",
     "BRIEF_SYSTEM_PROMPT",
     "DEFAULT_SOURCES",
     "WEEKDAYS",

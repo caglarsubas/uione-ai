@@ -21,6 +21,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import structlog
 
@@ -101,6 +102,17 @@ class Scheduler:
     principal_for: Callable[[str], Principal]
     jobs: list[ScheduledJob] = field(default_factory=list)
 
+    #: Writes the daily census the weekly review reads. Optional so a deployment
+    #: without storage still gets briefs — the census is what makes trends
+    #: possible, not what makes the product work.
+    recorder: Any | None = None
+
+    #: Produces the weekly review. Without it a WEEKLY_REVIEW job falls back to
+    #: a brief, which is what it used to do unconditionally: a "weekly review"
+    #: that is today's brief with a different greeting promises a different kind
+    #: of thinking and delivers the same list of unread mail.
+    weekly: Any | None = None
+
     #: Concurrent generations. Small on purpose: proactive work must yield to
     #: people who are waiting on an interactive request.
     max_concurrency: int = 2
@@ -164,6 +176,8 @@ class Scheduler:
         job.last_run = now
         job.runs += 1
         try:
+            if job.kind is JobKind.WEEKLY_REVIEW and self.weekly is not None:
+                return await self._run_weekly(job, principal, now)
             brief = await self.generator.generate(principal, greeting=_greeting(job.kind))
         except Exception as exc:  # noqa: BLE001 — one user's failure is not everyone's
             job.failures += 1
@@ -194,6 +208,58 @@ class Scheduler:
             await self.persist(job)
         except Exception:  # noqa: BLE001 — a storage failure must not lose the brief
             log.exception("scheduler.persist_failed", user=job.user_id)
+
+    async def _run_weekly(self, job: ScheduledJob, principal: Principal, now: datetime) -> bool:
+        try:
+            review = await self.weekly.generate(principal, now=now)
+        except Exception as exc:  # noqa: BLE001 — one user's failure is not everyone's
+            job.failures += 1
+            job.last_error = f"{type(exc).__name__}: {exc}"
+            self.stats.failed += 1
+            log.warning("scheduler.weekly_failed", user=job.user_id, error=job.last_error)
+            await self._persist(job)
+            return False
+
+        job.last_error = None
+        self.store.put(
+            job.user_id,
+            Brief(
+                principal_id=principal.user_id,
+                generated_at=review.generated_at,
+                body=review.body,
+                model=review.model,
+                error=review.error,
+            ),
+            kind=job.kind,
+        )
+        self.stats.generated += 1
+        log.info(
+            "scheduler.weekly_ready",
+            user=job.user_id,
+            anomalies=len(review.anomalies),
+            movements=len(review.movements),
+        )
+        await self._persist(job)
+        return True
+
+    async def record_metrics(self) -> int:
+        """Take the daily census for everyone with a schedule.
+
+        Driven from the schedule list rather than a separate registry: the
+        people who want a brief are exactly the people whose numbers are worth
+        keeping, and a second list would drift from the first.
+        """
+        if self.recorder is None:
+            return 0
+
+        taken = 0
+        for user_id in {job.user_id for job in self.jobs if job.enabled}:
+            try:
+                await self.recorder.take(self.principal_for(user_id))
+                taken += 1
+            except Exception:  # noqa: BLE001 — a census is never worth an outage
+                log.exception("scheduler.census_failed", user=user_id)
+        return taken
 
     # -- lifecycle ---------------------------------------------------------
 

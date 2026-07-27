@@ -88,6 +88,12 @@ class Finding:
     reason: str
     seasonal: bool = False
     sample_size: int = 0
+
+    #: When the assessed point was recorded. Carried so a report can state the
+    #: day rather than leave a model to infer one — watched against a real
+    #: model, "the same weekday baseline" with no date became "the drop on
+    #: Friday", which was a confident invention about a day never mentioned.
+    at: datetime | None = None
     #: Populated only when a judgement could not be made. Distinct from
     #: `anomalous=False`, which is a real "this looks normal".
     undetermined: str = ""
@@ -105,10 +111,15 @@ class Finding:
             return f"{self.metric}: {self.value:g} (normal, baseline {self.baseline:g})"
 
         arrow = "up" if self.direction is Direction.UP else "down"
-        basis = "same weekday" if self.seasonal else "recent history"
+        when = f" on {self.at:%A %d %B}" if self.at else ""
+        basis = (
+            f"other {self.at:%A}s"
+            if (self.seasonal and self.at)
+            else ("same weekday" if self.seasonal else "recent history")
+        )
         return (
-            f"{self.metric}: {self.value:g} — {arrow} {abs(self.change_pct):g}% "
-            f"against a {basis} baseline of {self.baseline:g} (score {self.score:g})"
+            f"{self.metric}{when}: {self.value:g} — {arrow} {abs(self.change_pct):g}% "
+            f"against a baseline of {self.baseline:g} from {basis} (score {self.score:g})"
         )
 
 
@@ -160,7 +171,9 @@ class Detector:
             # A perfectly flat history. Dividing by this is how a detector
             # reports a 1% move as a twelve-sigma event.
             if abs(current.value - baseline) < max(self.min_absolute_change, 1e-9):
-                return self._normal(metric, current.value, baseline, seasonal, len(sample))
+                return self._normal(
+                    metric, current.value, baseline, seasonal, len(sample), at=current.at
+                )
             return Finding(
                 metric=metric,
                 value=current.value,
@@ -171,6 +184,7 @@ class Detector:
                 reason="the metric has been perfectly flat and has now moved",
                 seasonal=seasonal,
                 sample_size=len(sample),
+                at=current.at,
             )
 
         score = abs(current.value - baseline) / (mad / MAD_TO_SIGMA)
@@ -179,10 +193,14 @@ class Detector:
         if moved < self.min_absolute_change:
             # Statistically significant, practically nothing. This is the check
             # that keeps a low-volume counter from paging anybody.
-            return self._normal(metric, current.value, baseline, seasonal, len(sample))
+            return self._normal(
+                metric, current.value, baseline, seasonal, len(sample), at=current.at
+            )
 
         if score < self.threshold:
-            return self._normal(metric, current.value, baseline, seasonal, len(sample), score)
+            return self._normal(
+                metric, current.value, baseline, seasonal, len(sample), score, at=current.at
+            )
 
         return Finding(
             metric=metric,
@@ -197,6 +215,7 @@ class Detector:
             ),
             seasonal=seasonal,
             sample_size=len(sample),
+            at=current.at,
         )
 
     def _normal(
@@ -207,6 +226,7 @@ class Detector:
         seasonal: bool,
         size: int,
         score: float = 0.0,
+        at: datetime | None = None,
     ) -> Finding:
         return Finding(
             metric=metric,
@@ -218,6 +238,7 @@ class Detector:
             reason="",
             seasonal=seasonal,
             sample_size=size,
+            at=at,
         )
 
     def assess_all(self, series: dict[str, list[Point]]) -> list[Finding]:

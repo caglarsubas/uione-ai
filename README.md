@@ -115,6 +115,7 @@ is at `/system/health`.
 - [Login](docs/LOGIN.md) — the authorization-code flow, PKCE, and revocable sessions.
 - [A2A](docs/A2A.md) — assistant-to-assistant collaboration, and the disclosure contracts that make it safe.
 - [The demo estate](docs/ESTATE.md) — one command to a running product, half real and half mocked.
+- [Weekly review](docs/WEEKLY.md) — the daily census, and two things a real model taught the report.
 - [BI and anomalies](docs/BI.md) — Grafana alerts, and why the detector is tuned against firing.
 - [Vendor access](docs/VENDOR_ACCESS.md) — which systems can be integrated against for free, in what order, and what a mock may claim.
 - [MCP](docs/MCP.md) — the real client, and why a server may raise its own risk but never lower it.
