@@ -22,6 +22,7 @@ the difference visible rather than blurring it.
 |---|---|---|
 | Gitea | **real**, in Docker | 3300 |
 | Grafana | **real**, in Docker, with an alert rule that fires | 3400 |
+| Mattermost | **real**, in Docker, with two users and a real mention | 8065 |
 | Gitea mock | for tests without Docker | 9101 |
 | ServiceNow mock | no PDI account here | 9102 |
 | Claims mock | no free access exists at all | 9103 |
@@ -34,8 +35,15 @@ succeed, not one that looked right.
 
 It creates a Gitea admin user and an API token, a repository and three issues; a
 Grafana Viewer service account and token, a test datasource, a folder, and an
-alert rule that starts firing within about a minute. Then it writes
-`.env.estate` and stops.
+alert rule that starts firing within about a minute; and a Mattermost admin, a
+team, a channel, **a second person**, and three messages from them — one of which
+mentions you. The second person is not decoration: your own posts are read by
+definition, so a single-user estate has nothing unread to demonstrate. Then it
+writes `.env.estate` and stops.
+
+Mattermost's image for this tag is amd64-only, so on Apple silicon it boots
+emulated and takes a minute or two. The script waits for readiness rather than
+assuming a fixed startup time.
 
 **It is idempotent.** Running `up` twice does not duplicate a repository, an
 issue or an alert rule — because the second run is usually somebody debugging

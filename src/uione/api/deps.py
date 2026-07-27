@@ -23,6 +23,7 @@ from uione.agent import AgentRuntime
 from uione.config import Settings, get_settings
 from uione.connectors.bi import GrafanaBI, build_grafana_source, grafana_config
 from uione.connectors.calendar import CalDavBackend, CalendarAccount, build_calendar_source
+from uione.connectors.chat import MattermostChat, build_mattermost_source, mattermost_config
 from uione.connectors.claims import ClaimsBackend, build_claims_source, claims_config
 from uione.connectors.demo import build_all
 from uione.connectors.files import build_file_ingestion, current_identity_map
@@ -127,7 +128,15 @@ def default_policy() -> ToolPolicy:
             Grant(
                 role="analyst",
                 tools=frozenset(
-                    {"mail.*", "tasks.*", "incidents.*", "calendar.*", "claims.*", "bi.*"}
+                    {
+                        "mail.*",
+                        "tasks.*",
+                        "incidents.*",
+                        "calendar.*",
+                        "claims.*",
+                        "bi.*",
+                        "chat.*",
+                    }
                 ),
                 max_risk=RiskClass.READ,
             ),
@@ -138,6 +147,7 @@ def default_policy() -> ToolPolicy:
             # permission to act unattended.
             Grant(role="analyst", tools=frozenset({"incidents.update_incident"})),
             Grant(role="analyst", tools=frozenset({"claims.add_note"})),
+            Grant(role="analyst", tools=frozenset({"chat.send_message"})),
             # Retrieval is read-only and filters by the calling principal, so a
             # broad grant here widens nothing: the index refuses what the user
             # may not read regardless of the grant.
@@ -230,6 +240,16 @@ def build_connectors(settings: Settings) -> list:
             )
         )
         log.info("connectors.claims_backend", backend="cloud-api", url=settings.claims_url)
+
+    if settings.mattermost_configured:
+        sources.append(
+            build_mattermost_source(
+                MattermostChat(
+                    mattermost_config(settings.mattermost_url, settings.mattermost_token)
+                )
+            )
+        )
+        log.info("connectors.chat_backend", backend="mattermost", url=settings.mattermost_url)
 
     if settings.grafana_configured:
         sources.append(

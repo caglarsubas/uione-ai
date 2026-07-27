@@ -64,7 +64,9 @@ Gitea or Forgejo issues (`UIONE_GITEA_URL` + `UIONE_GITEA_TOKEN`); a file share 
 indexed when `UIONE_FILES_ROOT` is set, with permissions read from the
 filesystem. Incidents speak the ServiceNow Table API (`UIONE_SERVICENOW_URL`) and
 claims a Guidewire-shaped Cloud API (`UIONE_CLAIMS_URL`) — both verified against
-mocks rather than the vendors, which no one can reach without a contract.
+mocks rather than the vendors, which no one can reach without a contract. Chat is
+real Mattermost (`UIONE_MATTERMOST_URL`) and BI is real Grafana
+(`UIONE_GRAFANA_URL`).
 
 ### Run the whole thing without a single vendor account
 

@@ -30,15 +30,18 @@ end to end.
 from uione.vendormocks.claims import build_claims_mock, seed_claims
 from uione.vendormocks.gitea import build_gitea_mock, seed_gitea
 from uione.vendormocks.grafana import build_grafana_mock, seed_grafana
+from uione.vendormocks.mattermost import build_mattermost_mock, seed_mattermost
 from uione.vendormocks.servicenow import build_servicenow_mock, seed_servicenow
 
 __all__ = [
     "build_claims_mock",
     "build_gitea_mock",
     "build_grafana_mock",
+    "build_mattermost_mock",
     "build_servicenow_mock",
     "seed_claims",
     "seed_gitea",
     "seed_grafana",
+    "seed_mattermost",
     "seed_servicenow",
 ]
