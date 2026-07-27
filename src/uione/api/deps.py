@@ -148,6 +148,10 @@ def default_policy() -> ToolPolicy:
             Grant(role="analyst", tools=frozenset({"incidents.update_incident"})),
             Grant(role="analyst", tools=frozenset({"claims.add_note"})),
             Grant(role="analyst", tools=frozenset({"chat.send_message"})),
+            # Named individually like every other write. It is EXTERNAL_FACING,
+            # so the egress policy still checks every attendee's domain before
+            # anything reaches a calendar server.
+            Grant(role="analyst", tools=frozenset({"calendar.propose_meeting"})),
             # Retrieval is read-only and filters by the calling principal, so a
             # broad grant here widens nothing: the index refuses what the user
             # may not read regardless of the grant.
@@ -268,7 +272,14 @@ def build_connectors(settings: Settings) -> list:
         )
         sources = [s for s in sources if s.name != "calendar"]
         sources.append(
-            build_calendar_source(CalDavBackend(account), timezone=settings.brief_timezone)
+            build_calendar_source(
+                CalDavBackend(account),
+                timezone=settings.brief_timezone,
+                # The address invitations are sent from. Falls back to the
+                # mailbox, since a deployment with a calendar almost always has
+                # one and an ORGANIZER nobody can reply to is worse than none.
+                organizer=settings.calendar_username or settings.mail_username,
+            )
         )
         log.info("connectors.calendar_backend", backend="caldav", url=settings.calendar_url)
     else:

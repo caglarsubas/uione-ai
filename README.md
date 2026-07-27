@@ -59,7 +59,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | HTTP API: chat, brief, approval queue, transparency page | `src/uione/api/` |
 
 Mail is a real IMAP/SMTP connector (configure `UIONE_MAIL_IMAP_HOST`, otherwise a
-fixture is used); calendar is real CalDAV (`UIONE_CALENDAR_URL`); tasks are real
+fixture is used); calendar is real CalDAV (`UIONE_CALENDAR_URL`), read and write — it proposes meetings; tasks are real
 Gitea or Forgejo issues (`UIONE_GITEA_URL` + `UIONE_GITEA_TOKEN`); a file share is
 indexed when `UIONE_FILES_ROOT` is set, with permissions read from the
 filesystem. Incidents speak the ServiceNow Table API (`UIONE_SERVICENOW_URL`) and

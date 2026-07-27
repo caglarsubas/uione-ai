@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -20,6 +21,7 @@ from uione.connectors.calendar import (
     free_slots,
     parse_events,
 )
+from uione.connectors.calendar.compose import build_event
 from uione.mcphub import (
     AuditLog,
     Grant,
@@ -476,3 +478,105 @@ def test_day_bounds_cover_exactly_one_day() -> None:
     assert start.hour == 0
     assert end - start == timedelta(days=1)
     assert start.tzinfo is IST
+
+
+# -- composing iCalendar ---------------------------------------------------
+
+
+def test_a_summary_with_structural_characters_is_escaped() -> None:
+    """A comma or semicolon in a title is syntax unless escaped, so
+    "Review budget, headcount" either fails to parse or silently becomes two
+    properties."""
+    _, ics = build_event(
+        summary="Review budget, headcount; and hiring",
+        start=datetime(2026, 7, 28, 9, 0, tzinfo=UTC),
+        end=datetime(2026, 7, 28, 9, 30, tzinfo=UTC),
+        organizer="me@corp.example",
+        attendees=["bora@corp.example"],
+    )
+
+    assert r"SUMMARY:Review budget\, headcount\; and hiring" in ics
+
+
+def test_a_backslash_is_escaped_before_everything_else() -> None:
+    """Escaping the backslash last would escape the escapes we just added."""
+    _, ics = build_event(
+        summary=r"Path C:\reports, final",
+        start=datetime(2026, 7, 28, 9, 0, tzinfo=UTC),
+        end=datetime(2026, 7, 28, 9, 30, tzinfo=UTC),
+        organizer="me@corp.example",
+        attendees=["bora@corp.example"],
+    )
+
+    assert r"C:\\reports\, final" in ics
+
+
+def test_long_lines_are_folded_with_a_leading_space() -> None:
+    """RFC 5545 folds at 75 octets, and the continuation space is protocol
+    rather than indentation."""
+    _, ics = build_event(
+        summary="A " + "very " * 40 + "long title",
+        start=datetime(2026, 7, 28, 9, 0, tzinfo=UTC),
+        end=datetime(2026, 7, 28, 9, 30, tzinfo=UTC),
+        organizer="me@corp.example",
+        attendees=["bora@corp.example"],
+    )
+
+    for line in ics.split("\r\n"):
+        assert len(line.encode()) <= 75, f"unfolded line: {line[:40]}…"
+    assert "\r\n " in ics
+
+
+def test_folding_counts_octets_not_characters() -> None:
+    """A title in Turkish folds earlier than its length suggests, and a server
+    counting octets rejects a line this code thought was short enough."""
+    _, ics = build_event(
+        summary="Ödeme mutabakatı toplantısı " * 4,
+        start=datetime(2026, 7, 28, 9, 0, tzinfo=UTC),
+        end=datetime(2026, 7, 28, 9, 30, tzinfo=UTC),
+        organizer="me@corp.example",
+        attendees=["bora@corp.example"],
+    )
+
+    assert all(len(line.encode()) <= 75 for line in ics.split("\r\n"))
+
+
+def test_the_output_uses_crlf() -> None:
+    """Plenty of parsers accept bare LF, which is what makes this the bug that
+    only appears against the one that does not."""
+    _, ics = build_event(
+        summary="Standup",
+        start=datetime(2026, 7, 28, 9, 0, tzinfo=UTC),
+        end=datetime(2026, 7, 28, 9, 15, tzinfo=UTC),
+        organizer="me@corp.example",
+        attendees=["bora@corp.example"],
+    )
+
+    assert "\r\n" in ics
+    assert not re.search(r"(?<!\r)\n", ics)
+
+
+def test_an_invitation_is_tentative_not_confirmed() -> None:
+    """Marking it CONFIRMED shows the meeting as settled in everyone's calendar
+    before anybody accepted."""
+    _, ics = build_event(
+        summary="Review",
+        start=datetime(2026, 7, 28, 9, 0, tzinfo=UTC),
+        end=datetime(2026, 7, 28, 9, 30, tzinfo=UTC),
+        organizer="me@corp.example",
+        attendees=["bora@corp.example"],
+    )
+
+    assert "STATUS:TENTATIVE" in ics
+    assert "PARTSTAT=NEEDS-ACTION" in ics
+
+
+def test_an_event_that_ends_before_it_starts_is_refused() -> None:
+    with pytest.raises(ValueError, match="end after it starts"):
+        build_event(
+            summary="Impossible",
+            start=datetime(2026, 7, 28, 10, 0, tzinfo=UTC),
+            end=datetime(2026, 7, 28, 9, 0, tzinfo=UTC),
+            organizer="me@corp.example",
+            attendees=["bora@corp.example"],
+        )
