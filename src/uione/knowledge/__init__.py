@@ -20,6 +20,11 @@ from uione.knowledge.ingest import (
     SyncResult,
 )
 from uione.knowledge.mail_source import build_mail_ingestion
+from uione.knowledge.refresh import (
+    IngestionRefresher,
+    RefreshStats,
+    SourceHealth,
+)
 from uione.knowledge.source import build_knowledge_source
 
 __all__ = [
@@ -39,8 +44,11 @@ __all__ = [
     "GroupGraph",
     "Hierarchy",
     "IndexStats",
+    "IngestionRefresher",
     "Link",
+    "RefreshStats",
     "SearchHit",
+    "SourceHealth",
     "Visibility",
     "WorkGraph",
     "CallableSource",
