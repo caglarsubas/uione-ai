@@ -333,6 +333,9 @@ async def system_health(services: Services = Depends(get_services)) -> dict[str,
         # when everything is healthy.
         "ingestion": ingestion,
         "quarantined": [s["source"] for s in ingestion if s["quarantined"]],
+        # A connector that failed to start is why a tool is missing. Answering
+        # that from health beats answering it from someone's memory of the logs.
+        "mcp_servers": services.mcp.health(),
     }
 
 

@@ -128,3 +128,30 @@ Not "we prevent prompt injection" — nobody can say that honestly. Rather:
 > An attacker who can write into your inbox can influence what the assistant
 > says. They cannot make it act outside your systems without one of your people
 > approving the exact payload, and every attempt is recorded.
+
+## Third-party MCP servers
+
+Added with the real client (PR24). Three properties, each the answer to a
+published attack rather than a hypothetical:
+
+**A server may raise its own risk; it may never lower it.** `readOnlyHint` and
+`idempotentHint` are ignored, because `READ` is the class exempt from the
+approval ladder and honouring a server's claim to it hands a compromised server
+unattended execution. `destructiveHint` and `openWorldHint` *are* honoured: a
+server claiming to be more dangerous costs its own users a prompt, and there is
+no attack in that. Getting `READ` requires an operator to write it down per tool.
+
+**A poisoned tool description never reaches the model.** Descriptions are the one
+attacker-controllable text that enters the context window with nobody invoking
+anything, and they are present in every request. A description matching a known
+injection pattern means the tool is withheld from the catalog entirely — an
+operator needs to know before the server is used, not after.
+
+**Every remote tool returns untrusted content.** Whatever a third-party server
+hands back could have been written by anyone, so a remote read taints the session
+exactly as inbound mail does. The taint mechanism, not the scanner, is what stops
+the trifecta closing.
+
+What is *not* covered yet: a server that ships benign tools, gets approved, and
+changes them later — the "rug pull". Detecting it needs the declared tool set
+pinned across restarts. See [MCP.md](MCP.md).

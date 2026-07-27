@@ -112,6 +112,12 @@ class Settings(BaseSettings):
         hour, _, minute = self.brief_time.partition(":")
         return _time(int(hour), int(minute or 0))
 
+    # --- MCP servers ---
+    #: The third-party MCP servers this deployment connects to, as a JSON list.
+    #: See docs/MCP.md. A malformed value fails startup rather than booting with
+    #: silently zero connectors.
+    mcp_servers: str = ""
+
     # --- Retrieval ---
     #: A file share to index, if this deployment has one. Empty means retrieval
     #: still works — over whatever the mailbox contributes — rather than being
