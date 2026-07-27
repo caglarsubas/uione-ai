@@ -17,7 +17,25 @@ from uione.mcphub.gateway import (
     ToolNotFoundError,
 )
 from uione.mcphub.policy import Grant, RateLimiter, ToolPolicy
-from uione.mcphub.source import InMemoryToolSource, MCPToolSource, ToolSource, classify_risk
+from uione.mcphub.source import (
+    InMemoryToolSource,
+    MCPToolSource,
+    ToolSource,
+    classify_risk,
+    describe_remote_tool,
+)
+from uione.mcphub.stdio import (
+    SUPPORTED_PROTOCOL_VERSIONS,
+    McpError,
+    ServerConfig,
+    StdioMcpClient,
+)
+from uione.mcphub.supervisor import (
+    McpConfigError,
+    McpSupervisor,
+    ServerStatus,
+    parse_server_config,
+)
 from uione.mcphub.types import (
     MUTATING_RISKS,
     ActionContext,
@@ -28,6 +46,15 @@ from uione.mcphub.types import (
 )
 
 __all__ = [
+    "parse_server_config",
+    "describe_remote_tool",
+    "SUPPORTED_PROTOCOL_VERSIONS",
+    "StdioMcpClient",
+    "ServerStatus",
+    "ServerConfig",
+    "McpSupervisor",
+    "McpError",
+    "McpConfigError",
     "MUTATING_RISKS",
     "ActionContext",
     "ActionGovernor",

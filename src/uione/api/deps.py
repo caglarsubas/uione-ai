@@ -54,6 +54,7 @@ from uione.mcphub import (
     FanOutAuditSink,
     Grant,
     McpGateway,
+    McpSupervisor,
     Principal,
     RiskClass,
     StructlogAuditSink,
@@ -99,6 +100,7 @@ class Services:
     refresher: IngestionRefresher
     schedules: ScheduleStore
     disclosures: DisclosureStore
+    mcp: McpSupervisor
 
 
 _services: Services | None = None
@@ -239,6 +241,13 @@ async def build_services() -> Services:
         await gateway.register(source)
     register_mail_undo(governor.journal)
 
+    # Third-party MCP servers. They arrive under our policy rather than their
+    # own: a server's risk hints cannot lower what governance requires, and its
+    # tool descriptions are vetted before the model ever sees them.
+    mcp = McpSupervisor.from_config(settings.mcp_servers)
+    for source in await mcp.start_all():
+        await gateway.register(source)
+
     def principal_for(user_id: str) -> Principal:
         # Roles are attached by the identity layer on a real request; a
         # background or A2A action runs with the owner's baseline role.
@@ -326,6 +335,7 @@ async def build_services() -> Services:
         refresher=refresher,
         schedules=schedules,
         disclosures=disclosures,
+        mcp=mcp,
     )
 
 
@@ -403,6 +413,7 @@ async def shutdown() -> None:
         # tick in flight fails against a disposed connection pool on the way out.
         await _services.scheduler.stop()
         await _services.refresher.stop()
+        await _services.mcp.aclose()
         await _services.model.aclose()
         await _services.database.dispose()
         _services = None

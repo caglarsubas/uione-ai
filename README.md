@@ -49,6 +49,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Permission-aware retrieval: ACL-filtered BM25 index | `src/uione/knowledge/` |
 | Ingestion with ACL derivation and permission re-sync | `src/uione/knowledge/` |
 | Eval harness: fixture-exact golden tasks gating model changes | `src/uione/evals/` |
+| Real MCP client over stdio, with third-party servers governed by our policy | `src/uione/mcphub/` |
 | Durable audit, approvals, undo journal, autonomy, schedules, contracts and documents | `src/uione/storage/` |
 | Scheduler: briefs pre-generated ahead of the working day | `src/uione/proactive/` |
 | Web workspace: brief, chat, Approval Center, transparency page | `src/uione/web/` |
@@ -90,6 +91,7 @@ is at `/system/health`.
 - [Identity](docs/IDENTITY.md) — OIDC, the auth modes, and why every one fails closed.
 - [Login](docs/LOGIN.md) — the authorization-code flow, PKCE, and revocable sessions.
 - [A2A](docs/A2A.md) — assistant-to-assistant collaboration, and the disclosure contracts that make it safe.
+- [MCP](docs/MCP.md) — the real client, and why a server may raise its own risk but never lower it.
 - [Connectors](docs/CONNECTORS.md) — the mail connector, and what every connector must declare.
 
 ## Status
