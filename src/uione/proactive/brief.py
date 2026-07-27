@@ -36,25 +36,53 @@ log = structlog.get_logger(__name__)
 
 @dataclass(frozen=True)
 class BriefSource:
-    """One thing to gather for the brief."""
+    """One thing to gather for the brief.
+
+    ``alternatives`` exists because a fixture connector and the real one for the
+    same domain do not agree on tool names — the demo incident source answers
+    ``incidents.active`` and ServiceNow answers ``incidents.my_incidents``. The
+    brief asks for a *capability*, and the first tool present provides it.
+
+    Without this the failure is quiet and bad: configuring a real incident
+    system makes the incidents section vanish from everyone's brief, because the
+    tool the brief names no longer exists.
+    """
 
     section: str
     tool: str
     arguments: dict = field(default_factory=dict)
     heading: str = ""
+    alternatives: tuple[str, ...] = ()
 
     @property
     def title(self) -> str:
         return self.heading or self.section.title()
 
+    def candidates(self) -> tuple[str, ...]:
+        return (self.tool, *self.alternatives)
+
 
 #: The default gather set. Roles override this — an incident responder and a
 #: finance analyst do not want the same morning.
 DEFAULT_SOURCES: tuple[BriefSource, ...] = (
-    BriefSource("incidents", "incidents.active", heading="Active incidents"),
+    # Alerts lead. Something currently on fire outranks anything in a queue,
+    # and the ordering here is what the model sees first.
+    BriefSource("bi", "bi.firing_alerts", {"limit": 5}, heading="Alerts firing now"),
+    BriefSource(
+        "incidents",
+        "incidents.active",
+        heading="Active incidents",
+        alternatives=("incidents.my_incidents",),
+    ),
     BriefSource("mail", "mail.list_unread", {"limit": 10}, heading="Unread mail"),
     BriefSource("calendar", "calendar.today", heading="Today's schedule"),
-    BriefSource("tasks", "tasks.my_open_issues", heading="Your open tasks"),
+    BriefSource(
+        "tasks",
+        "tasks.my_open_issues",
+        heading="Your open tasks",
+        alternatives=("tasks.my_issues",),
+    ),
+    BriefSource("claims", "claims.my_claims", {"limit": 10}, heading="Your claims"),
 )
 
 BRIEF_SYSTEM_PROMPT = """You are UiOne, writing a colleague's morning brief.
@@ -227,25 +255,44 @@ class BriefGenerator:
 
         Concurrent because the brief's whole promise is speed, and independent
         because one dead connector must not take the others with it.
-        """
 
-        async def fetch(source: BriefSource) -> SectionResult:
+        Sources whose tool this deployment does not have are skipped rather than
+        gathered and failed. "Degraded" has to mean *a system we have is down* —
+        if it also means "we never had a claims system", then every brief in
+        every deployment carries a warning banner, and a banner that is always
+        on is a banner nobody reads.
+        """
+        # Tracked by index rather than by value: BriefSource carries an
+        # arguments dict, so it is not hashable and cannot go in a set.
+        resolved: list[tuple[BriefSource, str]] = []
+        skipped: list[str] = []
+        for source in self._sources:
+            tool = next((t for t in source.candidates() if self._gateway.has_tool(t)), None)
+            if tool is None:
+                skipped.append(source.section)
+            else:
+                resolved.append((source, tool))
+
+        if skipped:
+            log.debug("brief.sources_absent", skipped=skipped)
+
+        async def fetch(source: BriefSource, tool: str) -> SectionResult:
             start = asyncio.get_running_loop().time()
             call = await self._gateway.call(
-                principal, source.tool, source.arguments, correlation_id=correlation_id
+                principal, tool, source.arguments, correlation_id=correlation_id
             )
             elapsed = (asyncio.get_running_loop().time() - start) * 1000
             return SectionResult(
                 section=source.section,
                 heading=source.title,
-                tool=source.tool,
+                tool=tool,
                 ok=call.ok,
                 content=call.result.content if call.ok else "",
                 error=call.result.error if not call.ok else None,
                 duration_ms=elapsed,
             )
 
-        return list(await asyncio.gather(*(fetch(s) for s in self._sources)))
+        return list(await asyncio.gather(*(fetch(s, tool) for s, tool in resolved)))
 
     def _render_prompt(
         self,

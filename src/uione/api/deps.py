@@ -21,6 +21,7 @@ from uione.a2a import (
 )
 from uione.agent import AgentRuntime
 from uione.config import Settings, get_settings
+from uione.connectors.bi import GrafanaBI, build_grafana_source, grafana_config
 from uione.connectors.calendar import CalDavBackend, CalendarAccount, build_calendar_source
 from uione.connectors.claims import ClaimsBackend, build_claims_source, claims_config
 from uione.connectors.demo import build_all
@@ -125,7 +126,9 @@ def default_policy() -> ToolPolicy:
         [
             Grant(
                 role="analyst",
-                tools=frozenset({"mail.*", "tasks.*", "incidents.*", "calendar.*", "claims.*"}),
+                tools=frozenset(
+                    {"mail.*", "tasks.*", "incidents.*", "calendar.*", "claims.*", "bi.*"}
+                ),
                 max_risk=RiskClass.READ,
             ),
             Grant(role="analyst", tools=frozenset({"tasks.update_issue"})),
@@ -227,6 +230,14 @@ def build_connectors(settings: Settings) -> list:
             )
         )
         log.info("connectors.claims_backend", backend="cloud-api", url=settings.claims_url)
+
+    if settings.grafana_configured:
+        sources.append(
+            build_grafana_source(
+                GrafanaBI(grafana_config(settings.grafana_url, settings.grafana_token))
+            )
+        )
+        log.info("connectors.bi_backend", backend="grafana", url=settings.grafana_url)
 
     if settings.calendar_configured:
         account = CalendarAccount(

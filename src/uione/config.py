@@ -144,6 +144,17 @@ class Settings(BaseSettings):
     def claims_configured(self) -> bool:
         return bool(self.claims_url)
 
+    # --- BI (Grafana) ---
+    #: Grafana, for dashboards and the alerts that fire off them. Self-hostable,
+    #: so it is verified against a real instance. The service account only ever
+    #: needs the Viewer role — see docs/BI.md.
+    grafana_url: str = ""
+    grafana_token: str = ""
+
+    @property
+    def grafana_configured(self) -> bool:
+        return bool(self.grafana_url and self.grafana_token)
+
     # --- MCP servers ---
     #: The third-party MCP servers this deployment connects to, as a JSON list.
     #: See docs/MCP.md. A malformed value fails startup rather than booting with

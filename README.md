@@ -104,6 +104,7 @@ is at `/system/health`.
 - [Identity](docs/IDENTITY.md) — OIDC, the auth modes, and why every one fails closed.
 - [Login](docs/LOGIN.md) — the authorization-code flow, PKCE, and revocable sessions.
 - [A2A](docs/A2A.md) — assistant-to-assistant collaboration, and the disclosure contracts that make it safe.
+- [BI and anomalies](docs/BI.md) — Grafana alerts, and why the detector is tuned against firing.
 - [Vendor access](docs/VENDOR_ACCESS.md) — which systems can be integrated against for free, in what order, and what a mock may claim.
 - [MCP](docs/MCP.md) — the real client, and why a server may raise its own risk but never lower it.
 - [Connectors](docs/CONNECTORS.md) — the mail connector, and what every connector must declare.
