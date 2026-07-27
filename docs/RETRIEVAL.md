@@ -177,10 +177,65 @@ Tests write real files and `chmod` them, so derivation is checked against the
 operating system's actual answer rather than a fixture written to match my
 assumptions.
 
+### Inherited permissions and nested groups
+
+POSIX is contested but *shallow*. The deeper shape — Confluence space → page →
+child page, SharePoint site → library → item, nested LDAP groups — is where the
+subtle failures live.
+
+`Hierarchy` resolves it against semantics stated explicitly, so a connector
+author can check them against a vendor's documentation:
+
+1. `inherits=True` extends the parent's resolved permissions with the node's own.
+2. `inherits=False` uses only the node's own grants — SharePoint calls this
+   breaking inheritance, Confluence calls it a page restriction.
+3. **Denials always inherit, even through a break.**
+
+Rule 3 is the asymmetry that matters, and the deliberate choice. A break is a
+statement about who *may* read, not a pardon: if an ancestor explicitly excluded
+someone, a subtree cannot quietly readmit them. Treating a break as clearing
+denials is the bug that **reinstates a departed contractor**.
+
+It is stricter than some products. Where a real system disagrees, the connector
+records that rather than this module loosening — being stricter denies access
+someone should have, which they report; being looser grants access nobody asked
+for, which they do not.
+
+Malformed hierarchies terminate: a parent cycle (a soft-deleted container whose
+parent pointer still resolves) stops rather than loops, and depth is bounded so
+truncation errs strict.
+
+#### Nested groups expand on the principal, not the grant
+
+A grant to `engineering` must reach someone carrying only `payments-team`.
+Expansion happens on the **principal** side at check time, which means stored
+ACLs stay identical to what the source system stated — an operator comparing our
+ACL against Confluence sees the same names — and a nesting change takes effect
+without reindexing anything.
+
+Expansion goes *upward* only. Being in `engineering` does not put you in
+`payments-team`; treating a grant to a subgroup as a grant to its parent is the
+inverted-direction bug.
+
+Cycles terminate (real directories contain loops, usually by accident), depth is
+bounded, and **exceeding the bound is reported rather than silently truncated** —
+a silent truncation removes access, which looks like a permissions bug to the
+user and is invisible to us.
+
+Without a configured group graph, matching is literal. A deployment that has not
+described its directory gets no inferred hierarchy, however tempting `x-team` and
+`x-team-leads` look.
+
+#### What this does and does not prove
+
+This is the resolution *algorithm*, tested against stated semantics. It is not a
+vendor connector, and the mapping from Confluence's or SharePoint's actual model
+onto these three fields is exactly where the next disagreement will be. Written
+this way deliberately: the semantics are pinned and testable now, so a connector
+author is checking a mapping rather than inventing one.
+
 ## Not yet
 
 Embeddings and reranking (lexical BM25 today), persistence — the index is
-in-memory and rebuilt on start — and ACL derivation for systems with *inherited*
-permission models: SharePoint's broken inheritance, Confluence space-versus-page
-restrictions, nested LDAP groups. POSIX is contested but shallow; those are where
-the next disagreements live.
+in-memory and rebuilt on start — and a real Confluence or SharePoint connector to
+validate the mapping above against a live system.

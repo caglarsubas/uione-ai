@@ -26,6 +26,7 @@ from dataclasses import dataclass
 import structlog
 
 from uione.knowledge.documents import AccessControl, Document
+from uione.knowledge.groups import FLAT, GroupGraph
 from uione.mcphub import Principal
 
 log = structlog.get_logger(__name__)
@@ -99,11 +100,15 @@ class IndexStats:
 
 
 class DocumentIndex:
-    def __init__(self) -> None:
+    def __init__(self, *, groups: GroupGraph | None = None) -> None:
         self._documents: dict[str, Document] = {}
         self._postings: dict[str, dict[str, int]] = defaultdict(dict)
         self._lengths: dict[str, int] = {}
         self._total_length = 0
+        # Nested groups are expanded on the principal, not the grant, so stored
+        # ACLs stay identical to what the source system stated and a nesting
+        # change takes effect without reindexing.
+        self._groups = groups or FLAT
 
     # -- ingestion ---------------------------------------------------------
 
@@ -167,11 +172,30 @@ class DocumentIndex:
 
     # -- retrieval ---------------------------------------------------------
 
+    def _effective(self, principal: Principal) -> Principal:
+        """The principal with its group memberships expanded.
+
+        A grant to ``engineering`` must reach someone who only carries
+        ``payments-team``. Without expansion the check compares names literally
+        and denies people who genuinely have access.
+        """
+        if self._groups is FLAT or not principal.roles:
+            return principal
+        expanded = self._groups.effective_groups(principal.roles)
+        if expanded == principal.roles:
+            return principal
+        return Principal(
+            user_id=principal.user_id,
+            roles=expanded,
+            display_name=principal.display_name,
+        )
+
     def _readable(self, principal: Principal) -> dict[str, Document]:
+        effective = self._effective(principal)
         return {
             document_id: document
             for document_id, document in self._documents.items()
-            if document.acl.permits(principal)
+            if document.acl.permits(effective)
         }
 
     def search(self, principal: Principal, query: str, *, limit: int = 5) -> list[SearchHit]:
@@ -229,7 +253,7 @@ class DocumentIndex:
         caller cannot distinguish the two and neither can a user probing ids.
         """
         document = self._documents.get(document_id)
-        if document is None or not document.acl.permits(principal):
+        if document is None or not document.acl.permits(self._effective(principal)):
             return None
         return document
 
