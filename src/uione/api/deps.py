@@ -23,6 +23,7 @@ from uione.agent import AgentRuntime
 from uione.config import Settings, get_settings
 from uione.connectors.calendar import CalDavBackend, CalendarAccount, build_calendar_source
 from uione.connectors.demo import build_all
+from uione.connectors.files import build_file_ingestion, current_identity_map
 from uione.connectors.mail import (
     ImapMailBackend,
     MailAccount,
@@ -40,7 +41,13 @@ from uione.identity import (
     ProxySettings,
     SessionStore,
 )
-from uione.knowledge import ExtractionRules
+from uione.knowledge import (
+    DocumentIndex,
+    ExtractionRules,
+    Ingestor,
+    build_knowledge_source,
+    build_mail_ingestion,
+)
 from uione.mcphub import (
     AuditLog,
     FanOutAuditSink,
@@ -55,10 +62,14 @@ from uione.modelplane import ModelPlaneClient, TaskRouter
 from uione.proactive import BriefGenerator, BriefStore, Schedule, Scheduler
 from uione.storage import (
     Database,
+    DisclosureStore,
+    DocumentStore,
     PersistentAutonomyPolicy,
+    ScheduleStore,
     SqlActionJournal,
     SqlApprovalStore,
     SqlAuditSink,
+    WatermarkStore,
 )
 
 log = structlog.get_logger(__name__)
@@ -82,6 +93,10 @@ class Services:
     sessions: SessionStore
     flow: OidcFlow | None
     session_ttl: timedelta
+    index: DocumentIndex
+    ingestor: Ingestor
+    schedules: ScheduleStore
+    disclosures: DisclosureStore
 
 
 _services: Services | None = None
@@ -103,6 +118,14 @@ def default_policy() -> ToolPolicy:
             ),
             Grant(role="analyst", tools=frozenset({"tasks.update_issue"})),
             Grant(role="analyst", tools=frozenset({"mail.send_reply"})),
+            # Retrieval is read-only and filters by the calling principal, so a
+            # broad grant here widens nothing: the index refuses what the user
+            # may not read regardless of the grant.
+            Grant(
+                role="analyst",
+                tools=frozenset({"knowledge.*"}),
+                max_risk=RiskClass.READ,
+            ),
         ]
     )
 
@@ -155,6 +178,35 @@ def build_connectors(settings: Settings) -> list:
     return sources
 
 
+def build_ingestion(settings: Settings, ingestor: Ingestor) -> None:
+    """Register whatever this deployment can index.
+
+    A deployment with neither a mailbox nor a file share still gets a working
+    search tool over an empty index, which answers "nothing matched" — the same
+    answer it gives for a document you may not read, and deliberately so.
+    """
+    if settings.mail_configured:
+        account = MailAccount(
+            host=settings.mail_imap_host,
+            port=settings.mail_imap_port,
+            use_ssl=settings.mail_imap_ssl,
+            username=settings.mail_username,
+            password=settings.mail_password,
+            mailbox=settings.mail_mailbox,
+            internal_domains=settings.internal_domain_set,
+        )
+        ingestor.register(
+            build_mail_ingestion(ImapMailBackend(account), owner_id=settings.mail_username)
+        )
+        log.info("ingest.source_registered", source="mail")
+
+    if settings.files_configured:
+        ingestor.register(
+            build_file_ingestion(settings.files_root, identities=current_identity_map())
+        )
+        log.info("ingest.source_registered", source="files", root=settings.files_root)
+
+
 async def build_services() -> Services:
     settings = get_settings()
 
@@ -201,6 +253,21 @@ async def build_services() -> Services:
         principal_for=principal_for,
     )
 
+    # Retrieval. The index is rebuilt from stored documents rather than stored
+    # itself: postings are derived from the tokeniser, and an index persisted
+    # across a tokeniser change would silently disagree with its own documents.
+    index = DocumentIndex()
+    documents = DocumentStore(database)
+    ingestor = Ingestor(index, watermarks=WatermarkStore(database), documents=documents)
+    build_ingestion(settings, ingestor)
+    restored = await ingestor.restore()
+    await gateway.register(build_knowledge_source(index))
+    log.info("retrieval.ready", documents=restored, sources=ingestor.sources)
+
+    if settings.ingest_on_startup and ingestor.sources:
+        for result in await ingestor.sync_all():
+            log.info("ingest.startup", **{"result": result.summary()})
+
     sessions = SessionStore(database, ttl=timedelta(minutes=settings.session_ttl_minutes))
 
     model = ModelPlaneClient()
@@ -214,6 +281,19 @@ async def build_services() -> Services:
         ),
     )
     brief_store = BriefStore()
+
+    schedules = ScheduleStore(database)
+    disclosures = DisclosureStore(database)
+    await disclosures.load_into(contracts)
+
+    scheduler = Scheduler(
+        generator=generator,
+        store=brief_store,
+        principal_for=principal_for,
+        max_concurrency=settings.scheduler_concurrency,
+        persist=schedules.save,
+    )
+    scheduler.load(await schedules.load_all())
 
     return Services(
         gateway=gateway,
@@ -231,12 +311,11 @@ async def build_services() -> Services:
         a2a=a2a,
         directory=directory,
         contracts=contracts,
-        scheduler=Scheduler(
-            generator=generator,
-            store=brief_store,
-            principal_for=principal_for,
-            max_concurrency=settings.scheduler_concurrency,
-        ),
+        scheduler=scheduler,
+        index=index,
+        ingestor=ingestor,
+        schedules=schedules,
+        disclosures=disclosures,
     )
 
 

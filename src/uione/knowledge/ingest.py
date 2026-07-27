@@ -26,7 +26,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 import structlog
 
@@ -89,10 +89,35 @@ class SyncResult:
 
 
 class Ingestor:
-    def __init__(self, index: DocumentIndex) -> None:
+    def __init__(
+        self,
+        index: DocumentIndex,
+        *,
+        watermarks: Any | None = None,
+        documents: Any | None = None,
+    ) -> None:
         self._index = index
         self._sources: dict[str, IngestionSource] = {}
         self._last_sync: dict[str, datetime] = {}
+        # Both optional so tests and offline use need no database. When present,
+        # this class is the single write path into durable storage as well as
+        # into the index: anything added here is stored, anything removed here
+        # is deleted. Persisting from a second place is how a store and an index
+        # start disagreeing about who may read what.
+        self._watermarks = watermarks
+        self._documents = documents
+
+    async def restore(self) -> int:
+        """Refill the index and the sync watermarks from storage.
+
+        Without the watermarks an incremental sync after a restart either
+        re-ingests everything or — the dangerous case — resumes from a point
+        that never covered the window it skipped.
+        """
+        restored = await self._documents.load_into(self._index) if self._documents else 0
+        if self._watermarks is not None:
+            self._last_sync = await self._watermarks.load_all()
+        return restored
 
     def register(self, source: IngestionSource) -> None:
         self._sources[source.name] = source
@@ -134,8 +159,14 @@ class Ingestor:
         for document in staged:
             self._index.add(document)
             result.indexed += 1
+        if self._documents is not None:
+            await self._documents.save_all(staged)
 
-        self._last_sync[source_name] = datetime.now(UTC)
+        completed = datetime.now(UTC)
+        self._last_sync[source_name] = completed
+        if self._watermarks is not None:
+            await self._watermarks.save(source_name, completed)
+
         log.info("ingest.synced", **{"source": source_name, "indexed": result.indexed})
         return result
 
@@ -176,11 +207,15 @@ class Ingestor:
                 # The source no longer knows about it, or will not say who may
                 # read it. Either way we no longer know, so it goes.
                 self._index.remove(document_id)
+                if self._documents is not None:
+                    await self._documents.delete(document_id)
                 result.removed += 1
                 continue
             existing = self._index.acl_of(document_id)
             if existing is not None and existing.fingerprint() != acl.fingerprint():
                 self._index.update_acl(document_id, acl)
+                if self._documents is not None:
+                    await self._documents.update_acl(document_id, acl)
                 result.revoked += 1
 
         if result.revoked or result.removed:
@@ -195,7 +230,7 @@ class Ingestor:
     async def resync_all_permissions(self) -> list[SyncResult]:
         return [await self.resync_permissions(name) for name in self._sources]
 
-    def quarantine(self, source_name: str, *, reason: str) -> int:
+    async def quarantine(self, source_name: str, *, reason: str) -> int:
         """Drop a source's content entirely.
 
         For when permissions cannot be verified at all. Removing the content is
@@ -203,6 +238,10 @@ class Ingestor:
         serving documents under permissions of unknown age.
         """
         removed = self._index.remove_source(source_name)
+        if self._documents is not None:
+            # Deleted from storage too, deliberately: a restart must not restore
+            # content whose permissions we could not verify.
+            await self._documents.delete_source(source_name)
         log.warning("ingest.source_quarantined", source=source_name, reason=reason, removed=removed)
         return removed
 

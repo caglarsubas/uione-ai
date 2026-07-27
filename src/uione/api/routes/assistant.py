@@ -389,7 +389,7 @@ async def set_schedule(
     except Exception:
         raise HTTPException(status_code=422, detail=f"unknown timezone {timezone!r}") from None
 
-    job = services.scheduler.add(
+    job = await services.scheduler.save(
         ScheduledJob(
             user_id=principal.user_id,
             kind=JobKind.MORNING_BRIEF,
@@ -574,5 +574,10 @@ async def set_disclosure(
     if update.by_user is not None:
         contract.by_user = {u: parse(f) for u, f in update.by_user.items()}
     services.contracts.set(contract)
+    # Stored immediately rather than at shutdown: a contract that reverts to the
+    # default on restart is a *narrowing*, so the failure looks like a colleague's
+    # assistant refusing a question it answered yesterday — with nothing in any
+    # log to connect the two.
+    await services.disclosures.save(contract)
 
     return await my_disclosure(principal, services)

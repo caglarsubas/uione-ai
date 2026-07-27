@@ -49,7 +49,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Permission-aware retrieval: ACL-filtered BM25 index | `src/uione/knowledge/` |
 | Ingestion with ACL derivation and permission re-sync | `src/uione/knowledge/` |
 | Eval harness: fixture-exact golden tasks gating model changes | `src/uione/evals/` |
-| Durable audit, approvals, undo journal and autonomy records | `src/uione/storage/` |
+| Durable audit, approvals, undo journal, autonomy, schedules, contracts and documents | `src/uione/storage/` |
 | Scheduler: briefs pre-generated ahead of the working day | `src/uione/proactive/` |
 | Web workspace: brief, chat, Approval Center, transparency page | `src/uione/web/` |
 | Identity: OIDC bearer validation, fail-closed auth | `src/uione/identity/` |
@@ -58,7 +58,15 @@ python scripts/demo_brief.py --model ministral-3:8b
 | HTTP API: chat, brief, approval queue, transparency page | `src/uione/api/` |
 
 Mail is a real IMAP/SMTP connector (configure `UIONE_MAIL_IMAP_HOST`, otherwise a
-fixture is used). Calendar, tasks and incidents remain fixtures.
+fixture is used); calendar is real CalDAV (`UIONE_CALENDAR_URL`); a file share is
+indexed when `UIONE_FILES_ROOT` is set, with permissions read from the
+filesystem. Tasks and incidents remain fixtures.
+
+Everything a user configures survives a restart — their brief schedule, what
+their assistant may disclose about them, and the indexed corpus with its
+permissions. Set `UIONE_INGEST_ON_STARTUP=1` to sweep configured sources at
+startup; the first run over a large share should be a decision rather than a
+surprise on boot.
 
 ## Documents
 

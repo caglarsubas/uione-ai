@@ -278,7 +278,13 @@ def test_autonomy_page_records_executed_actions(client: TestClient) -> None:
 def test_connector_health_is_exposed(client: TestClient) -> None:
     body = client.get("/system/health").json()
 
-    assert set(body["connectors"]) == {"mail", "tasks", "incidents", "calendar"}
+    assert set(body["connectors"]) == {
+        "mail",
+        "tasks",
+        "incidents",
+        "calendar",
+        "knowledge",
+    }
     assert body["degraded"] == []
 
 
