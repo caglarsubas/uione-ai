@@ -66,6 +66,7 @@ from uione.storage import (
     Database,
     DisclosureStore,
     DocumentStore,
+    McpPinStore,
     PersistentAutonomyPolicy,
     ScheduleStore,
     SqlActionJournal,
@@ -244,7 +245,7 @@ async def build_services() -> Services:
     # Third-party MCP servers. They arrive under our policy rather than their
     # own: a server's risk hints cannot lower what governance requires, and its
     # tool descriptions are vetted before the model ever sees them.
-    mcp = McpSupervisor.from_config(settings.mcp_servers)
+    mcp = McpSupervisor.from_config(settings.mcp_servers, pins=McpPinStore(database))
     for source in await mcp.start_all():
         await gateway.register(source)
 

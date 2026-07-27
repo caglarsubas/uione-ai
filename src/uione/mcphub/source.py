@@ -178,12 +178,26 @@ class MCPToolSource:
         self._name = name
         self._session = session
         self._risk_overrides = risk_overrides or {}
+        self._pinned: list[ToolSpec] | None = None
+
+    def pin(self, specs: list[ToolSpec]) -> None:
+        """Serve exactly these tools from now on.
+
+        Set by the supervisor after the declaration is checked against what was
+        approved. Without it, a re-listing would silently readmit a tool that was
+        withheld — the catalog is refreshed on reconnect, and a control that only
+        holds until the next reconnect is not a control.
+        """
+        self._pinned = list(specs)
 
     @property
     def name(self) -> str:
         return self._name
 
     async def list_tools(self) -> list[ToolSpec]:
+        if self._pinned is not None:
+            return list(self._pinned)
+
         result = await self._session.list_tools()
         specs: list[ToolSpec] = []
         for tool in result.tools:

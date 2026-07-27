@@ -32,7 +32,13 @@ from uione.knowledge.documents import AccessControl, Document, Visibility
 from uione.knowledge.index import DocumentIndex
 from uione.proactive.schedule import JobKind, Schedule, ScheduledJob
 from uione.storage.database import Database
-from uione.storage.models import DisclosureRow, DocumentRow, ScheduleRow, SyncWatermarkRow
+from uione.storage.models import (
+    DisclosureRow,
+    DocumentRow,
+    McpPinRow,
+    ScheduleRow,
+    SyncWatermarkRow,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -281,3 +287,47 @@ class WatermarkStore:
             )
             for row in rows
         }
+
+
+class McpPinStore:
+    """The approved declaration of each MCP server.
+
+    Returns ``None`` for a server never seen, which the pinning rules read as
+    trust-on-first-use — distinct from ``{}``, a server approved with no tools.
+    """
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    async def load(self, server: str) -> dict[str, str] | None:
+        async with self._db.session() as session:
+            row = await session.get(McpPinRow, server)
+            return dict(row.tools or {}) if row is not None else None
+
+    async def save(self, server: str, tools: dict[str, str], *, approved_by: str) -> None:
+        async with self._db.session() as session:
+            row = await session.get(McpPinRow, server)
+            if row is None:
+                row = McpPinRow(server=server)
+                session.add(row)
+            row.tools = dict(tools)
+            row.approved_at = datetime.now(UTC)
+            row.approved_by = approved_by
+
+    async def load_all(self) -> dict[str, dict[str, str]]:
+        async with self._db.session() as session:
+            rows = list((await session.execute(select(McpPinRow))).scalars())
+        return {row.server: dict(row.tools or {}) for row in rows}
+
+    async def forget(self, server: str) -> bool:
+        """Drop a pin, so the next start treats the server as new.
+
+        How an operator approves a change: they look at what altered, then clear
+        the pin so the current declaration becomes the approved one.
+        """
+        async with self._db.session() as session:
+            row = await session.get(McpPinRow, server)
+            if row is None:
+                return False
+            await session.delete(row)
+            return True

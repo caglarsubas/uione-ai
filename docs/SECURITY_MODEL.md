@@ -152,6 +152,11 @@ hands back could have been written by anyone, so a remote read taints the sessio
 exactly as inbound mail does. The taint mechanism, not the scanner, is what stops
 the trifecta closing.
 
-What is *not* covered yet: a server that ships benign tools, gets approved, and
-changes them later — the "rug pull". Detecting it needs the declared tool set
-pinned across restarts. See [MCP.md](MCP.md).
+**A server cannot change what it declared without a human noticing.** The "rug
+pull" — benign tools at approval, mutated ones later — is closed by pinning a
+fingerprint per tool over its description and parameters. First sighting is
+trusted (the operator configured it seconds ago); every later change withholds
+the affected tools from the catalog, and only those, until an operator runs
+`python -m uione.mcphub.pin approve`. The pin is durable, because the attack is a
+change *over time* and an in-memory pin re-approves whatever the server says at
+each restart. See [MCP.md](MCP.md).
