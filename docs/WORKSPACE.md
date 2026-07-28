@@ -135,3 +135,68 @@ helper, so in dev auth mode it 401'd while every other call worked. And the toke
 accumulator was named `raw`, colliding with the SSE frame's own `raw` — a
 `TypeError: Assignment to constant variable` that only appears when a token
 actually arrives.
+
+
+## Presence
+
+Two things were missing: the assistant had no visible presence, and nothing
+showed *which* of your systems it was touching.
+
+### The avatar is an instrument
+
+Every state is entered because the server sent an event and left because it sent
+another. There is no idle loop and no timer pretending work is happening — a
+still face means nothing is running.
+
+| state | entered by | shows |
+|---|---|---|
+| idle | `done`, or nothing yet | slow blink |
+| thinking | `step` | halo turns, eyes narrow |
+| working | `tool` | eyes glance toward the system being read |
+| speaking | first `token` | mouth waveform moves |
+| held | a `tool_result` with `held` | amber, **still** — it is stopped, not working |
+| busy | `error` with reason `busy` | the engine is at capacity |
+
+**The mouth moves only while tokens are actually landing.** The `talking` class
+is refreshed on each token and removed 260ms after the last one, so a model that
+stalls mid-sentence *looks* stalled. An animation that ran for a fixed duration
+would be claiming progress that has not happened — the same failure as prose
+claiming completeness, in a different medium.
+
+Deliberately restrained. This is a tool people have open for eight hours, and a
+face that bounces would be unbearable by Tuesday. Geometry, not cartoon.
+
+### The scope strip is the audit trail, rendered
+
+A tile per system this deployment actually has, dim until touched. A tile lights
+because a tool on that system *ran*, and carries the count that tool reported:
+
+```
+Mail 5     Incidents 3     Dashboards   Calendar   Chat   …
+ (green)    (green)         (dim)
+```
+
+The counts come from the tool's structured result, so "Mail 5" appears only
+because mail reported five things — never counted out of prose. Held actions
+turn the tile amber, failures red.
+
+Knowing what it *could* reach is part of trusting what it did, which is why
+unused systems stay visible rather than hidden.
+
+### Notes
+
+Icons are inline SVG. No icon font and no sprite sheet: an air-gapped deployment
+should have nothing here to fetch, and a missing icon font degrades to empty
+boxes, which looks broken rather than plain.
+
+`prefers-reduced-motion` disables every animation. Each state is also carried by
+colour and by the text beside the avatar, so switching motion off loses the
+movement and nothing else.
+
+### A lesson from building it
+
+`node --check` validates syntax, not references. Three of these functions were
+called before they were defined — the file parsed, the container built, and the
+strip silently rendered empty. The check that caught it asserts every symbol the
+code references is declared somewhere in the file, which is the property that
+actually mattered.

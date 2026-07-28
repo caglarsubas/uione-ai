@@ -304,3 +304,243 @@ td.mono { font-family: var(--mono); font-size: 12.5px; }
   padding: 0 0.25rem;
   border-radius: 3px;
 }
+
+/* ---- presence ----------------------------------------------------------
+ *
+ * The avatar is an instrument. Every state here is entered because the server
+ * sent an event, and left because it sent another — there is no idle loop and
+ * no timer pretending work is happening. A still face means nothing is running.
+ *
+ * Restrained on purpose. This is a tool people have open for eight hours, and
+ * a face that bounces would be unbearable by Tuesday. Geometry, not cartoon. */
+
+.presence {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.75rem 0.9rem;
+  margin-bottom: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.avatar {
+  width: 56px;
+  height: 56px;
+  flex: 0 0 auto;
+}
+
+.avatar .halo {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 2;
+  opacity: 0.7;
+  transition: stroke 0.35s ease, opacity 0.35s ease;
+}
+
+.avatar .face {
+  fill: var(--surface-2);
+  stroke: var(--border);
+  stroke-width: 1.5;
+  transition: stroke 0.35s ease;
+}
+
+.avatar .eye {
+  fill: var(--text-dim);
+  transition: fill 0.35s ease;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.avatar .bar {
+  fill: var(--text-faint);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: fill 0.35s ease;
+}
+
+.presence-state {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.presence-detail {
+  color: var(--text-dim);
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Idle: a slow blink and nothing else. Enough to look awake, little enough to
+   ignore. */
+.presence[data-state="idle"] .eye {
+  animation: blink 6.5s infinite;
+}
+
+/* Thinking: the eyes narrow and the halo turns. Deliberately not the mouth —
+   a mouth moving while no words are arriving is the animation equivalent of
+   claiming progress that has not happened. */
+.presence[data-state="thinking"] .halo,
+.presence[data-state="working"] .halo {
+  stroke: var(--accent);
+  opacity: 1;
+  stroke-dasharray: 30 165;
+  animation: orbit 1.4s linear infinite;
+}
+
+.presence[data-state="thinking"] .eye,
+.presence[data-state="working"] .eye {
+  fill: var(--accent);
+}
+
+/* Working: the eyes shift toward the system being read, so the avatar is
+   looking at the tile that is lit. */
+.presence[data-state="working"] .eyes {
+  animation: glance 1.1s ease-in-out infinite;
+}
+
+/* Speaking: bars move. Driven by a class the script toggles on token arrival,
+   so if the model stalls mid-sentence the mouth stops with it. */
+.presence[data-state="speaking"] .halo {
+  stroke: var(--ok);
+  opacity: 1;
+}
+
+.presence[data-state="speaking"] .eye {
+  fill: var(--ok);
+}
+
+.presence[data-state="speaking"] .bar {
+  fill: var(--ok);
+}
+
+.presence[data-state="speaking"].talking .bar {
+  animation: wave 0.62s ease-in-out infinite;
+}
+
+.presence[data-state="speaking"].talking .bar:nth-child(2) { animation-delay: 0.09s; }
+.presence[data-state="speaking"].talking .bar:nth-child(3) { animation-delay: 0.18s; }
+.presence[data-state="speaking"].talking .bar:nth-child(4) { animation-delay: 0.27s; }
+.presence[data-state="speaking"].talking .bar:nth-child(5) { animation-delay: 0.36s; }
+
+/* Waiting on a person. Amber, and still — it is not working, it is stopped. */
+.presence[data-state="held"] .halo {
+  stroke: var(--warn);
+  opacity: 1;
+}
+.presence[data-state="held"] .eye { fill: var(--warn); }
+
+.presence[data-state="error"] .halo,
+.presence[data-state="busy"] .halo {
+  stroke: var(--danger);
+  opacity: 1;
+}
+.presence[data-state="error"] .eye,
+.presence[data-state="busy"] .eye { fill: var(--danger); }
+
+@keyframes blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+
+@keyframes orbit {
+  to { transform: rotate(360deg); transform-origin: 36px 36px; }
+}
+
+@keyframes glance {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(2.5px); }
+}
+
+@keyframes wave {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(2.6); }
+}
+
+/* ---- scope tiles -------------------------------------------------------
+ *
+ * Which systems this turn touched, while it touches them. A tile lights only
+ * because a tool on that system ran, and carries the count that tool reported —
+ * so this is the audit trail rendered, not a decoration that guesses. */
+
+.scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  /* Dim until used. A system this deployment has but has not touched this turn
+     should be visible and quiet — knowing what it *could* reach is part of
+     trusting what it did. */
+  opacity: 0.55;
+  transition: opacity 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}
+
+.scope svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.scope .scope-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.scope[data-state="active"] {
+  opacity: 1;
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: tile-pulse 1.1s ease-in-out infinite;
+}
+
+.scope[data-state="done"] {
+  opacity: 1;
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.scope[data-state="held"] {
+  opacity: 1;
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.scope[data-state="failed"] {
+  opacity: 1;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+@keyframes tile-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 0 3px var(--accent-soft); }
+}
+
+/* Motion is the first thing to go. Every state above is also carried by colour
+   and by the text beside the avatar, so switching animation off loses nothing
+   but the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .avatar .eye,
+  .avatar .eyes,
+  .avatar .halo,
+  .avatar .bar,
+  .scope {
+    animation: none !important;
+  }
+}

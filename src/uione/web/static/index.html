@@ -42,6 +42,43 @@
       <p class="subtitle">
         Acts across your systems. Anything that changes something is held for your approval first.
       </p>
+      <!-- Presence.
+           The avatar is an instrument, not decoration: every state below is
+           driven by an event from the server, so a still face means nothing is
+           happening and a moving one means something is. An idle animation on a
+           timer would be a lie of exactly the kind this product avoids
+           elsewhere. -->
+      <div class="presence" id="presence" data-state="idle">
+        <svg class="avatar" viewBox="0 0 72 72" aria-hidden="true" focusable="false">
+          <!-- The halo carries state colour. Separate from the face so the
+               face never has to be recoloured, which reads as a mood swing. -->
+          <circle class="halo" cx="36" cy="36" r="31"></circle>
+          <rect class="face" x="14" y="16" width="44" height="40" rx="14"></rect>
+          <g class="eyes">
+            <circle class="eye eye-l" cx="27" cy="34" r="3.6"></circle>
+            <circle class="eye eye-r" cx="45" cy="34" r="3.6"></circle>
+          </g>
+          <!-- The mouth is a waveform whose bars are driven by token arrival.
+               When tokens stop, it stops — so a stalled model looks stalled. -->
+          <g class="mouth">
+            <rect class="bar" x="27" y="44" width="2.6" height="4" rx="1.3"></rect>
+            <rect class="bar" x="31.5" y="44" width="2.6" height="4" rx="1.3"></rect>
+            <rect class="bar" x="36" y="44" width="2.6" height="4" rx="1.3"></rect>
+            <rect class="bar" x="40.5" y="44" width="2.6" height="4" rx="1.3"></rect>
+            <rect class="bar" x="45" y="44" width="2.6" height="4" rx="1.3"></rect>
+          </g>
+        </svg>
+        <div class="presence-text">
+          <div class="presence-state" id="presence-state">Ready</div>
+          <div class="presence-detail" id="presence-detail">Ask about your work.</div>
+        </div>
+      </div>
+
+      <!-- What it is touching, while it touches it. The visual form of the
+           audit trail: a tile lights only when a tool on that system actually
+           ran, and carries the count the tool reported. -->
+      <div class="scopes" id="scopes" aria-label="Systems in use"></div>
+
       <div class="thread" id="thread"></div>
       <div class="composer">
         <textarea id="composer" rows="2"
