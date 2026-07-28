@@ -101,6 +101,12 @@ class Settings(BaseSettings):
     def mail_configured(self) -> bool:
         return bool(self.mail_imap_host and self.mail_username)
 
+    #: Language for output nobody asked for in the moment — the morning brief,
+    #: the weekly review. Interactive replies match whatever the user wrote and
+    #: ignore this, because the person in front of you is better evidence than
+    #: a configuration file.
+    locale: str = "en"
+
     # --- Proactive engine ---
     scheduler_enabled: bool = True
     scheduler_interval_s: float = 60.0

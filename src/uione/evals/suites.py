@@ -21,6 +21,7 @@ from uione.config import Settings
 from uione.connectors.demo import INCIDENTS, MAILBOX, TASKS, build_all
 from uione.evals.assertions import (
     ActionHeld,
+    AnyOf,
     Contains,
     EvalOutput,
     FactMatches,
@@ -220,6 +221,60 @@ AGENT_CASES = [
 ]
 
 
+# -- language suite --------------------------------------------------------
+#
+# The suite exists because of a measured behaviour, not a hypothetical one.
+# Asked a Turkish question about two incidents, both models sometimes answer
+# beautifully in Turkish and drop the incident numbers — the prose is correct
+# and the answer is useless, because the number is what you type into the
+# tracker. Over six runs at temperature 0.7 against ServiceNow-shaped output:
+# ministral-3:8b kept both identifiers 4/6 times without the language rule and
+# 6/6 with it; gemma4:e4b 5/6 and 6/6.
+#
+# These cases assert the identifiers survive. They deliberately do not assert
+# the prose is *good* Turkish — that needs a speaker, not a substring check,
+# and an assertion nobody can verify is worse than no assertion.
+
+LANGUAGE_CASES = [
+    EvalCase(
+        name="language/keeps_identifiers_when_answering_in_turkish",
+        description=(
+            "Answering in another language must not drop the ticket numbers. "
+            "Measured: dropped in 2 of 6 runs before the language rule existed."
+        ),
+        suite="language",
+        scenario=lambda m: _agent_scenario(m, "Hangi olaylar açık? Kısaca özetle."),
+        assertions=[
+            ToolCalled("incidents.active"),
+            Contains("INC-4471", why="the identifier is what a person acts on"),
+        ],
+    ),
+    EvalCase(
+        name="language/answers_in_the_language_asked",
+        description=(
+            "A Turkish question gets a Turkish answer. Asserted on a handful of "
+            "common words rather than on fluency, which a substring check cannot "
+            "judge."
+        ),
+        suite="language",
+        scenario=lambda m: _agent_scenario(m, "Kaç tane okunmamış e-postam var?"),
+        assertions=[
+            AnyOf(
+                [Contains("posta"), Contains("okunmamış"), Contains("var")],
+                why="the reply should be in Turkish, not English",
+            )
+        ],
+    ),
+    EvalCase(
+        name="language/an_english_question_stays_in_english",
+        description="The rule must not make an English deployment answer in something else.",
+        suite="language",
+        scenario=lambda m: _agent_scenario(m, "Which incidents are open?"),
+        assertions=[Contains("INC-4471"), AnyOf([Contains("incident"), Contains("latency")])],
+    ),
+]
+
+
 # -- safety suite ----------------------------------------------------------
 
 POISONED = """\
@@ -348,11 +403,12 @@ AGENT_CASES.append(
 )
 
 
-ALL_CASES = BRIEF_CASES + AGENT_CASES + SAFETY_CASES
+ALL_CASES = BRIEF_CASES + AGENT_CASES + LANGUAGE_CASES + SAFETY_CASES
 
 SUITES = {
     "brief": BRIEF_CASES,
     "agent": AGENT_CASES,
+    "language": LANGUAGE_CASES,
     "safety": SAFETY_CASES,
     "all": ALL_CASES,
 }

@@ -114,3 +114,61 @@ EvalCase(
 
 Write the case when the defect is found, not later. Every case in the suite today
 exists because something actually went wrong.
+
+
+## The language suite
+
+An enterprise assistant that only speaks English is one that half an
+organisation writes to in English and the other half stops using. The models
+here are multilingual already; what the product has to get right is the boundary
+between **prose**, which should be translated, and **identifiers**, which must
+not be.
+
+### The measured problem
+
+Asked a Turkish question about two incidents and given English tool output, the
+models sometimes answer beautifully in Turkish and drop the incident numbers.
+`INC0010001` becomes "the card settlement incident" — correct prose, useless
+answer, because the number is what you type into the tracker.
+
+Six runs per configuration, temperature 0.7:
+
+| model | plain prompt | with the language rule |
+|---|---|---|
+| `ministral-3:8b` | both identifiers kept in **4/6** | **6/6** |
+| `gemma4:e4b` | **5/6** | **6/6** |
+
+The rule helps, measurably. **Six runs is not a proof** — which is exactly why
+identifiers are also structured fields, the same defence used for `complete` and
+`unavailable`. A UI rendering `structured["keys"]` shows the numbers whatever the
+prose did.
+
+### What the rule says, and why it is phrased that way
+
+It is a statement about identifiers rather than an instruction to translate
+well: *"these tokens appear exactly as given"* is something a model can check
+itself against, and *"translate accurately"* is not.
+
+Status values are the non-obvious member of the list. "In Progress" is a value in
+a dropdown somewhere, and somebody searching ServiceNow for "Devam Ediyor" finds
+nothing — so the English value is kept and the translation may go in brackets.
+
+### What these cases do not assert
+
+That the Turkish is *good*. That needs a speaker, not a substring check, and an
+assertion nobody can verify is worse than no assertion. The cases check that
+identifiers survive and that the reply is plausibly in the right language, using
+`AnyOf` over a few common words rather than one exact spelling — a correct answer
+has several.
+
+### Interactive versus proactive
+
+An interactive reply matches whatever the user wrote; the model does the
+detection, because it already can and a separate detector is another dependency
+to be wrong about a two-word message. A morning brief has no user message to
+match, so it uses `UIONE_LOCALE`.
+
+Verified end to end: a Turkish brief across seven systems kept `INC0010001`,
+`INC0010002`, `PAY-1182` and `CLM-004401`, and left the Grafana metric name
+`Settlement failure rate` in English — which is correct, because that is the
+label on the dashboard.

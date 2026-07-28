@@ -29,6 +29,7 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 
+from uione.agent.language import with_proactive_language
 from uione.analysis.anomaly import Detector, Finding, Point, Report
 from uione.modelplane import ChatMessage, ModelPlaneClient, ModelPlaneError, TaskClass
 
@@ -158,12 +159,13 @@ class WeeklyReviewGenerator:
         detector: Detector | None = None,
         titles: dict[str, str] | None = None,
         system_prompt: str = WEEKLY_SYSTEM_PROMPT,
+        locale: str = "en",
     ) -> None:
         self._model = model
         self._store = store
         self._detector = detector or Detector()
         self._titles = titles or {}
-        self._system_prompt = system_prompt
+        self._system_prompt = with_proactive_language(system_prompt, locale)
 
     async def generate(self, principal, *, now: datetime | None = None) -> WeeklyReport:
         moment = now or datetime.now(UTC)

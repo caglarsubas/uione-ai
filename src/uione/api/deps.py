@@ -520,6 +520,7 @@ async def build_services() -> Services:
             ticket_prefixes=settings.ticket_prefix_set,
             internal_domains=internal,
         ),
+        locale=settings.locale,
     )
     brief_store = BriefStore()
 
@@ -541,6 +542,7 @@ async def build_services() -> Services:
             store=metrics,
             detector=Detector(),
             titles={s.metric: s.title for s in DEFAULT_METRICS},
+            locale=settings.locale,
         ),
     )
     scheduler.load(await schedules.load_all())
