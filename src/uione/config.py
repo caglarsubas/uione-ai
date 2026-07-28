@@ -176,6 +176,12 @@ class Settings(BaseSettings):
     #: still works — over whatever the mailbox contributes — rather than being
     #: switched off, so search is never silently absent.
     files_root: str = ""
+    #: Sub-directory of the share that assistant-written documents go into.
+    #: A single directory rather than anywhere in the share: a write tool whose
+    #: destination is a parameter is one prompt away from writing into somebody
+    #: else's folder.
+    documents_folder: str = "documents"
+
     #: Whether an ingestion sweep runs at startup. Off by default: a first run
     #: over a large share should be a decision, not a surprise on boot.
     ingest_on_startup: bool = False

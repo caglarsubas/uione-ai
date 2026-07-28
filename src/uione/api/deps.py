@@ -27,7 +27,12 @@ from uione.connectors.calendar import CalDavBackend, CalendarAccount, build_cale
 from uione.connectors.chat import MattermostChat, build_mattermost_source, mattermost_config
 from uione.connectors.claims import ClaimsBackend, build_claims_source, claims_config
 from uione.connectors.demo import build_all
-from uione.connectors.files import build_file_ingestion, current_identity_map
+from uione.connectors.files import (
+    DocumentWriter,
+    build_document_source,
+    build_file_ingestion,
+    current_identity_map,
+)
 from uione.connectors.incidents import (
     ServiceNowIncidents,
     build_servicenow_source,
@@ -146,6 +151,7 @@ def default_policy() -> ToolPolicy:
                         "claims.*",
                         "bi.*",
                         "chat.*",
+                        "documents.*",
                     }
                 ),
                 max_risk=RiskClass.READ,
@@ -158,6 +164,7 @@ def default_policy() -> ToolPolicy:
             Grant(role="analyst", tools=frozenset({"incidents.update_incident"})),
             Grant(role="analyst", tools=frozenset({"claims.add_note"})),
             Grant(role="analyst", tools=frozenset({"chat.send_message"})),
+            Grant(role="analyst", tools=frozenset({"documents.write_document"})),
             # Named individually like every other write. It is EXTERNAL_FACING,
             # so the egress policy still checks every attendee's domain before
             # anything reaches a calendar server.
@@ -254,6 +261,21 @@ def build_connectors(settings: Settings) -> list:
             )
         )
         log.info("connectors.claims_backend", backend="cloud-api", url=settings.claims_url)
+
+    if settings.files_configured:
+        # Writing is offered only where there is a share to write to. A
+        # "write_document" tool with nowhere to put anything would be a tool
+        # that always fails, which teaches a model to stop trying.
+        sources.append(
+            build_document_source(
+                DocumentWriter(
+                    settings.files_root,
+                    identities=current_identity_map(),
+                    folder=settings.documents_folder,
+                )
+            )
+        )
+        log.info("connectors.documents", root=settings.files_root)
 
     if settings.mattermost_configured:
         sources.append(
