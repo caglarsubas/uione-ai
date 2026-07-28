@@ -16,6 +16,7 @@ import httpx
 import structlog
 
 from uione.config import Settings, get_settings
+from uione.modelplane.admission import AdmissionGate, Priority
 from uione.modelplane.types import (
     ChatMessage,
     Completion,
@@ -71,6 +72,7 @@ class ModelPlaneClient:
         *,
         client: httpx.AsyncClient | None = None,
         recorder: UsageRecorder | None = None,
+        gate: AdmissionGate | None = None,
     ) -> None:
         self._settings = settings or get_settings()
         self._own_client = client is None
@@ -81,6 +83,13 @@ class ModelPlaneClient:
             )
         )
         self.usage = recorder or UsageRecorder()
+        # Every request to the engine passes through this. A deployment shares
+        # one instance across every caller — a per-client gate would bound
+        # nothing, since the whole point is that they contend for one engine.
+        self.gate = gate or AdmissionGate(
+            limit=self._settings.model_plane_concurrency,
+            interactive_timeout_s=self._settings.model_plane_queue_timeout_s,
+        )
 
     async def __aenter__(self) -> ModelPlaneClient:
         return self
@@ -195,6 +204,7 @@ class ModelPlaneClient:
         temperature: float = 0.2,
         max_tokens: int | None = None,
         response_format: dict[str, Any] | None = None,
+        priority: Priority = Priority.INTERACTIVE,
     ) -> Completion:
         """Run one chat completion.
 
@@ -214,7 +224,12 @@ class ModelPlaneClient:
         if response_format is not None:
             payload["response_format"] = response_format
 
-        data = await self._post("/chat/completions", payload)
+        # The slot is held for the request only. Retries inside `_post` happen
+        # within it, deliberately: a retry is the same request and releasing
+        # between attempts would send it to the back of the queue.
+        async with self.gate.slot(priority):
+            data = await self._post("/chat/completions", payload)
+
         completion = _parse_completion(data, fallback_model=resolved)
         self.usage.record(completion.model or resolved, completion.usage)
         log.debug(
@@ -234,6 +249,7 @@ class ModelPlaneClient:
         model: str | None = None,
         temperature: float = 0.2,
         tools: list[ToolDefinition] | None = None,
+        priority: Priority = Priority.INTERACTIVE,
     ):
         """Stream one completion, yielding text as it arrives.
 
@@ -263,26 +279,30 @@ class ModelPlaneClient:
         partial: dict[int, dict[str, str]] = {}
         finish_reason = ""
 
-        async for frame in self._stream_post("/chat/completions", payload):
-            for choice in frame.get("choices") or []:
-                finish_reason = choice.get("finish_reason") or finish_reason
-                delta = choice.get("delta") or {}
+        # A streamed request holds its slot for the whole stream, not just the
+        # first byte. The engine is busy until the last token, and releasing
+        # early would admit a second request into capacity that does not exist.
+        async with self.gate.slot(priority):
+            async for frame in self._stream_post("/chat/completions", payload):
+                for choice in frame.get("choices") or []:
+                    finish_reason = choice.get("finish_reason") or finish_reason
+                    delta = choice.get("delta") or {}
 
-                if text := delta.get("content"):
-                    content.append(text)
-                    yield ("content", text)
+                    if text := delta.get("content"):
+                        content.append(text)
+                        yield ("content", text)
 
-                for fragment in delta.get("tool_calls") or []:
-                    index = int(fragment.get("index", 0))
-                    call = partial.setdefault(index, {"id": "", "name": "", "arguments": ""})
-                    if identifier := fragment.get("id"):
-                        call["id"] = identifier
-                    function = fragment.get("function") or {}
-                    if name := function.get("name"):
-                        call["name"] = name
-                    if arguments := function.get("arguments"):
-                        # Concatenated, never replaced: this is the fragment.
-                        call["arguments"] += arguments
+                    for fragment in delta.get("tool_calls") or []:
+                        index = int(fragment.get("index", 0))
+                        call = partial.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                        if identifier := fragment.get("id"):
+                            call["id"] = identifier
+                        function = fragment.get("function") or {}
+                        if name := function.get("name"):
+                            call["name"] = name
+                        if arguments := function.get("arguments"):
+                            # Concatenated, never replaced: this is the fragment.
+                            call["arguments"] += arguments
 
         yield (
             "completion",

@@ -33,6 +33,21 @@ class Settings(BaseSettings):
         description="Base URL of the OpenAI-compatible inference engine.",
     )
     model_plane_api_key: str = ""
+    #: How many requests may be at the engine at once.
+    #:
+    #: Two, because measurement says more buys nothing: an 8B model served six
+    #: concurrent requests in almost exactly six times the time it served one.
+    #: The engine serialises internally, so extra concurrency redistributes
+    #: latency rather than adding throughput — and this setting decides who
+    #: waits, not how fast anything goes. Raise it for an engine that genuinely
+    #: batches, such as vLLM with continuous batching.
+    model_plane_concurrency: int = 2
+
+    #: How long someone waiting on a reply queues before being told the engine
+    #: is busy. Ninety seconds of spinner teaches people the product is slow;
+    #: a quick refusal teaches them it is loaded, which is recoverable.
+    model_plane_queue_timeout_s: float = 30.0
+
     model_plane_timeout_s: float = 120.0
     model_plane_connect_timeout_s: float = 10.0
 

@@ -5,6 +5,12 @@ serving runtime (llm_inference_engine on vLLM, llama.cpp, MLX, or Ollama in
 development) is configuration rather than code.
 """
 
+from uione.modelplane.admission import (
+    UNLIMITED,
+    AdmissionGate,
+    ModelPlaneBusy,
+    Priority,
+)
 from uione.modelplane.client import (
     ModelPlaneClient,
     ModelPlaneError,
@@ -22,6 +28,10 @@ from uione.modelplane.types import (
 )
 
 __all__ = [
+    "UNLIMITED",
+    "AdmissionGate",
+    "ModelPlaneBusy",
+    "Priority",
     "ChatMessage",
     "Completion",
     "ModelPlaneClient",

@@ -25,6 +25,7 @@ from uione.agent.reliability import RepairResult, ToolNameResolver, validate_and
 from uione.governance.containment import TaintTracker, TrustLevel
 from uione.mcphub import ActionContext, McpGateway, Principal, ToolResult
 from uione.modelplane import ChatMessage, ModelPlaneClient, ModelPlaneError, TaskClass, TaskRouter
+from uione.modelplane.admission import ModelPlaneBusy
 
 log = structlog.get_logger(__name__)
 
@@ -54,6 +55,9 @@ class StopReason(StrEnum):
 
     STEP_BUDGET_EXHAUSTED = "step_budget_exhausted"
     MODEL_ERROR = "model_error"
+    BUSY = "busy"
+    """The engine had no capacity. Distinct from an error because nothing is
+    broken and the honest advice is different: try again in a moment."""
     NO_TOOLS_AVAILABLE = "no_tools_available"
 
 
@@ -148,6 +152,15 @@ class AgentRuntime:
         for step in range(max_steps):
             try:
                 completion = await self._model.chat(messages, task=task, tools=tools or None)
+            except ModelPlaneBusy:
+                log.info("agent.busy", step=step)
+                return AgentRun(
+                    final=None,
+                    stop_reason=StopReason.BUSY,
+                    turns=turns,
+                    messages=messages,
+                    taint=taint,
+                )
             except ModelPlaneError as exc:
                 log.warning("agent.model_error", error=str(exc), step=step)
                 return AgentRun(
@@ -269,6 +282,13 @@ class AgentRuntime:
                         yield ("token", {"text": value})
                     else:
                         completion = value
+            except ModelPlaneBusy as exc:
+                # Not an error: the engine is working, just fully committed.
+                # Reported separately so the UI can say "try again" rather than
+                # "something went wrong", which are different instructions.
+                log.info("agent.busy", step=step)
+                yield ("error", {"message": str(exc), "reason": str(StopReason.BUSY)})
+                return
             except ModelPlaneError as exc:
                 log.warning("agent.stream_model_error", error=str(exc), step=step)
                 yield ("error", {"message": str(exc), "reason": str(StopReason.MODEL_ERROR)})
