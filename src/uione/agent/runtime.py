@@ -319,7 +319,7 @@ class AgentRuntime:
             )
 
             for call in completion.tool_calls:
-                yield ("tool", {"name": call.name})
+                yield ("tool", {"name": call.name, "server": call.name.split(".")[0]})
                 invocation = await self._invoke(
                     principal,
                     call,
@@ -328,10 +328,21 @@ class AgentRuntime:
                     taint=taint,
                     correlation_id=correlation_id,
                 )
+                name = invocation.resolved_name or invocation.requested_name
+                structured = invocation.result.structured or {}
                 yield (
                     "tool_result",
                     {
-                        "name": invocation.resolved_name or invocation.requested_name,
+                        "name": name,
+                        # The system, separated from the verb, so a UI can light
+                        # up "mail" without parsing tool names — which would
+                        # make every rename a silent UI regression.
+                        "server": name.split(".")[0],
+                        # How many things it found, when the tool says. The
+                        # number a person actually wants: "mail ✓ 5" tells them
+                        # more than "mail ✓", and it comes from the structured
+                        # field rather than being counted out of prose.
+                        "count": structured.get("count"),
                         "ok": invocation.ok,
                         # Surfaced rather than folded into `ok`: an action waiting
                         # for approval is not a failure, and a UI that shows it as

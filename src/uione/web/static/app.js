@@ -91,6 +91,107 @@ document.querySelectorAll(".nav-btn").forEach((btn) => {
  * model emits a narrow subset, and pulling in a markdown library would defeat
  * the point of shipping no dependencies. Everything is escaped first, so model
  * output cannot inject markup — it is untrusted text like any other. */
+/* ---- presence ----------------------------------------------------------
+ *
+ * The avatar and the scope tiles are readouts of the event stream. Nothing here
+ * starts an animation on a guess: `working` is entered because a `tool` event
+ * arrived and left because its `tool_result` did, and the mouth moves only
+ * while tokens are actually landing. A model that stalls mid-sentence looks
+ * stalled, which is the honest thing for it to look like.
+ */
+
+/* One glyph per system, drawn inline. No icon font and no sprite sheet: an
+   air-gapped deployment should have nothing here to fetch, and a missing icon
+   font degrades to empty boxes, which looks broken rather than plain. */
+const SCOPE_ICONS = {
+  mail: '<path d="M2 4h12v8H2z"/><path d="M2 5l6 4 6-4"/>',
+  calendar: '<rect x="2" y="3" width="12" height="11" rx="1"/><path d="M2 7h12M6 2v3M10 2v3"/>',
+  tasks: '<path d="M3 8l2.5 2.5L13 4"/><path d="M3 13h10"/>',
+  incidents: '<path d="M8 2l6 11H2z"/><path d="M8 7v3M8 11.5v.5"/>',
+  claims: '<path d="M4 2h6l3 3v9H4z"/><path d="M9 2v4h4"/>',
+  chat: '<path d="M2 3h12v8H6l-4 3z"/>',
+  bi: '<path d="M3 13V7M8 13V3M13 13v-4"/>',
+  knowledge: '<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/>',
+  documents: '<path d="M4 2h5l3 3v9H4z"/><path d="M6 8h4M6 11h4"/>',
+};
+
+const SCOPE_LABELS = {
+  mail: "Mail",
+  calendar: "Calendar",
+  tasks: "Tasks",
+  incidents: "Incidents",
+  claims: "Claims",
+  chat: "Chat",
+  bi: "Dashboards",
+  knowledge: "Documents",
+  documents: "Writing",
+};
+
+const presence = {
+  set(state, text, detail) {
+    const node = $("#presence");
+    if (!node) return;
+    node.dataset.state = state;
+    if (text !== undefined) $("#presence-state").textContent = text;
+    if (detail !== undefined) $("#presence-detail").textContent = detail;
+  },
+
+  /* Called on every token. The class is removed after a short pause, so the
+     mouth keeps moving while text flows and stops within a fraction of a
+     second of it stopping — rather than running for a fixed duration and
+     lying about the tail. */
+  token() {
+    const node = $("#presence");
+    if (!node) return;
+    node.classList.add("talking");
+    clearTimeout(this._quiet);
+    this._quiet = setTimeout(() => node.classList.remove("talking"), 260);
+  },
+
+  /* The mouth stops the moment the turn does, rather than running out its
+     260ms timer after the answer has finished. */
+  quiet() {
+    clearTimeout(this._quiet);
+    $("#presence")?.classList.remove("talking");
+  },
+};
+
+/** Build a tile for each system this deployment actually has. */
+async function loadScopes() {
+  const strip = $("#scopes");
+  if (!strip) return;
+  try {
+    const health = await api("/system/health");
+    // `connectors` is an object of name → status, not a list. Spreading it as
+    // an array yields nothing and the strip renders empty, which looks like
+    // "this deployment has no systems" rather than like a bug.
+    const servers = Object.keys(health.connectors || {}).sort();
+    strip.innerHTML = "";
+    for (const server of servers) {
+      const tile = el("span", "scope");
+      tile.dataset.server = server;
+      tile.dataset.state = "idle";
+      tile.innerHTML =
+        `<svg viewBox="0 0 16 16">${SCOPE_ICONS[server] || SCOPE_ICONS.knowledge}</svg>` +
+        `<span>${SCOPE_LABELS[server] || server}</span><span class="scope-count"></span>`;
+      strip.append(tile);
+    }
+  } catch {
+    // A workspace without the strip is still a working workspace.
+  }
+}
+
+function scopeTile(server) {
+  return server ? $(`.scope[data-server="${CSS.escape(server)}"]`) : null;
+}
+
+function resetScopes() {
+  for (const tile of document.querySelectorAll(".scope")) {
+    tile.dataset.state = "idle";
+    tile.querySelector(".scope-count").textContent = "";
+  }
+}
+
 /**
  * The smallest markdown that makes model output readable.
  *
@@ -237,6 +338,8 @@ async function send() {
   pending.innerHTML = "";
   pending.append(progress, answer);
   progress.append(el("div", "step", "thinking…"));
+  resetScopes();
+  presence.set("thinking", "Thinking", "Working out what to look at.");
 
   try {
     await streamChat(message, { progress, answer });
@@ -246,6 +349,7 @@ async function send() {
     // than replacing it: a partial answer the reader knows is partial is more
     // use than an error that discards it.
     answer.append(notice("danger", "The reply stopped early.", String(err)));
+    presence.set("error", "Stopped", "The reply ended before it finished.");
   } finally {
     $("#send").disabled = false;
     input.focus();
@@ -254,6 +358,15 @@ async function send() {
 
 function renderAnswer(node, text) {
   node.innerHTML = renderMarkdown(text);
+}
+
+/** What this turn touched, for the line under the avatar once it is done. */
+function touchedSummary() {
+  const used = [...document.querySelectorAll('.scope[data-state="done"]')].map(
+    (t) => t.querySelector("span:not(.scope-count)").textContent,
+  );
+  if (!used.length) return "Ask about your work.";
+  return `Read ${used.join(", ").toLowerCase()}.`;
 }
 
 /** Consume the SSE stream, rendering progress and tokens as they arrive. */
@@ -294,11 +407,20 @@ async function streamChat(message, { progress, answer }) {
 
       if (kind === "step") {
         progress.firstChild.textContent = payload.step === 1 ? "thinking…" : `step ${payload.step}`;
+        if (!answerText) presence.set("thinking", "Thinking", `Step ${payload.step}.`);
       } else if (kind === "tool") {
         const line = el("div", "step");
         line.append(el("span", "tool-name", payload.name), el("span", null, " …"));
         line.dataset.tool = payload.name;
         progress.append(line);
+
+        const tile = scopeTile(payload.server);
+        if (tile) tile.dataset.state = "active";
+        presence.set(
+          "working",
+          "Reading",
+          `${SCOPE_LABELS[payload.server] || payload.server} — ${payload.name}`,
+        );
       } else if (kind === "tool_result") {
         const line = [...progress.children].reverse().find((n) => n.dataset.tool === payload.name);
         const status = payload.held
@@ -307,16 +429,48 @@ async function streamChat(message, { progress, answer }) {
             ? " ✓"
             : ` — ${payload.error || "failed"}`;
         if (line) line.lastChild.textContent = status;
+
+        const tile = scopeTile(payload.server);
+        if (tile) {
+          tile.dataset.state = payload.held ? "held" : payload.ok ? "done" : "failed";
+          // The count comes from the tool's structured result, so the tile
+          // says "Mail 5" only when mail actually reported five things.
+          if (typeof payload.count === "number") {
+            tile.querySelector(".scope-count").textContent = String(payload.count);
+          }
+        }
+        if (payload.held) {
+          presence.set("held", "Waiting on you", "An action needs your approval.");
+        }
       } else if (kind === "token") {
         // The raw text is kept and re-rendered, because markdown cannot be
         // formatted one fragment at a time — `**bo` is not bold yet.
         answerText += payload.text;
         renderAnswer(answer, answerText);
+        if ($("#presence").dataset.state !== "speaking") {
+          presence.set("speaking", "Answering", "");
+        }
+        presence.token();
       } else if (kind === "done") {
         finished = true;
         progress.firstChild.textContent = payload.reason === "completed" ? "" : payload.reason;
         if (!answerText) renderAnswer(answer, payload.final || "(no reply)");
+        presence.quiet();
+        const held = document.querySelectorAll('.scope[data-state="held"]').length;
+        presence.set(
+          held ? "held" : "idle",
+          held ? "Waiting on you" : "Ready",
+          held ? "Approve it under Approvals." : touchedSummary(),
+        );
       } else if (kind === "error") {
+        // `busy` is not a failure: the engine is working and fully committed,
+        // and "try again" is different advice from "something went wrong".
+        const busy = payload.reason === "busy";
+        presence.set(
+          busy ? "busy" : "error",
+          busy ? "Busy" : "Stopped",
+          busy ? "The model plane is at capacity. Try again in a moment." : payload.message,
+        );
         throw new Error(payload.message);
       }
     }
@@ -535,6 +689,10 @@ async function boot() {
   loadBrief();
   loadApprovals().catch(() => {});
   loadSystems().catch(() => {});
+  // The tiles are built from what this deployment actually has, so a workspace
+  // with no chat connector shows no chat tile rather than one that can never
+  // light up.
+  loadScopes().catch(() => {});
 }
 
 boot();
