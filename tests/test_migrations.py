@@ -376,3 +376,104 @@ def test_sql_mode_prints_statements_without_touching_the_database(
     assert main(["sql"]) == 0
     assert "CREATE TABLE" in capsys.readouterr().out
     assert not (tmp_path / "never.db").exists()
+
+
+# -- backup ----------------------------------------------------------------
+
+
+async def test_a_backup_is_a_working_database(tmp_path, migrated: Database) -> None:
+    """The point of `VACUUM INTO` over `cp`: what comes out opens and answers."""
+    from uione.mcphub import AuditLog, AuditOutcome, Principal, RiskClass
+    from uione.storage import SqlAuditSink
+
+    await AuditLog(SqlAuditSink(migrated)).record(
+        principal=Principal(user_id="alice", roles=frozenset()),
+        server="mail",
+        tool="mail.send_reply",
+        risk=RiskClass.EXTERNAL_FACING,
+        outcome=AuditOutcome.ALLOWED,
+        arguments={},
+    )
+
+    await migrated.backup_to(tmp_path / "backup.db")
+
+    restored = Database(Settings(database_url=url_for(tmp_path, "backup.db")))
+    try:
+        assert await restored.is_current(), "a backup must carry its schema version"
+        assert len(await SqlAuditSink(restored).recent()) == 1
+    finally:
+        await restored.dispose()
+
+
+async def test_a_backup_is_taken_while_the_database_is_in_use(tmp_path, migrated: Database) -> None:
+    """`VACUUM INTO` runs inside a read transaction, which is why this is safe
+    and `cp` is not — a copy taken mid-transaction captures pages from two
+    states and produces a file that opens, queries, and is wrong."""
+    from uione.mcphub import AuditLog, AuditOutcome, Principal, RiskClass
+    from uione.storage import SqlAuditSink
+
+    log = AuditLog(SqlAuditSink(migrated))
+    for i in range(20):
+        await log.record(
+            principal=Principal(user_id="alice", roles=frozenset()),
+            server="mail",
+            tool="mail.search",
+            risk=RiskClass.READ,
+            outcome=AuditOutcome.ALLOWED,
+            arguments={"n": i},
+        )
+
+    target = await migrated.backup_to(tmp_path / "hot.db")
+
+    assert target.stat().st_size > 0
+    # The live database keeps working afterwards.
+    await log.record(
+        principal=Principal(user_id="alice", roles=frozenset()),
+        server="mail",
+        tool="mail.search",
+        risk=RiskClass.READ,
+        outcome=AuditOutcome.ALLOWED,
+        arguments={},
+    )
+    assert len(await SqlAuditSink(migrated).recent(limit=100)) == 21
+
+
+async def test_a_backup_never_overwrites(tmp_path, migrated: Database) -> None:
+    """Backups are taken on a schedule and named by date. Silently replacing
+    one is how a week of them turns out to be the same day."""
+    await migrated.backup_to(tmp_path / "b.db")
+
+    with pytest.raises(FileExistsError):
+        await migrated.backup_to(tmp_path / "b.db")
+
+
+def test_a_backend_this_cannot_back_up_is_refused_by_name() -> None:
+    """Before the engine is built, so the answer is not a missing-driver
+    traceback about a thing that was never supported."""
+    from uione.storage.database import require_sqlite
+
+    require_sqlite("sqlite+aiosqlite:///x.db")
+
+    with pytest.raises(RuntimeError, match="pg_dump"):
+        require_sqlite("postgresql+asyncpg://u@h/db")
+
+
+async def test_a_restored_backup_from_an_older_build_still_refuses_to_run(
+    tmp_path, migrated: Database
+) -> None:
+    """The interlock worth having: restoring last month's backup onto this
+    month's code is caught by the same check that catches any stale schema,
+    rather than by a query failing in production."""
+    from uione.api.deps import prepare_database
+
+    await migrated.backup_to(tmp_path / "old.db")
+    settings = Settings(database_url=url_for(tmp_path, "old.db"))
+    restored = Database(settings)
+    try:
+        async with restored.session() as session:
+            await session.execute(text("UPDATE alembic_version SET version_num = 'from_v9'"))
+
+        with pytest.raises(RuntimeError, match="newer version"):
+            await prepare_database(restored, settings)
+    finally:
+        await restored.dispose()

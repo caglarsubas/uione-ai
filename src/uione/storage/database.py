@@ -8,6 +8,7 @@ from pathlib import Path
 
 import structlog
 from alembic.config import Config
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -57,6 +58,41 @@ class Database:
         if context.get_current_revision() is None:
             context._ensure_version_table()
             connection.execute(_version_table().insert().values(version_num=head_revision()))
+
+    async def backup_to(self, destination: str | Path) -> Path:
+        """Write a consistent copy of the database, safely, while it is in use.
+
+        **You cannot back up a live SQLite database by copying the file.** A
+        `cp` taken mid-transaction captures pages from two different states and
+        produces a file that opens, queries, and is wrong — the worst kind of
+        backup, because nobody discovers it until they need it.
+
+        `VACUUM INTO` is SQLite's own answer: it runs inside a read transaction
+        and writes a complete, defragmented database. The result is smaller
+        than the original and openable by any SQLite tool.
+
+        Postgres is refused rather than half-supported. `pg_dump` already does
+        this properly, with options this would have to reinvent badly, and an
+        operator running Postgres has a backup policy that does not need us.
+        """
+        require_sqlite(self._settings.database_url)
+
+        target = Path(destination).expanduser().resolve()
+        if target.exists():
+            # Refused rather than overwritten. Backups are taken on a schedule
+            # and named by date; silently replacing one is how a week of them
+            # turns out to be the same day.
+            raise FileExistsError(f"{target} already exists; choose another name")
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        async with self._engine.connect() as conn:
+            # Parameters are not allowed in VACUUM INTO, so the path is
+            # embedded — with quotes doubled, which is SQLite's own escape.
+            escaped = str(target).replace("'", "''")
+            await conn.execute(text(f"VACUUM INTO '{escaped}'"))
+
+        log.info("storage.backup_written", path=str(target), bytes=target.stat().st_size)
+        return target
 
     async def has_tables(self) -> bool:
         """Whether this database holds any of our tables.
@@ -153,6 +189,23 @@ def _alembic_config() -> Config:
     config = Config()
     config.set_main_option("script_location", str(Path(__file__).parent / "migrations"))
     return config
+
+
+def require_sqlite(url: str) -> None:
+    """Refuse a backend this cannot back up, before anything else happens.
+
+    Called before the engine is built, not after. Constructing the engine loads
+    the driver, so on a Postgres deployment without asyncpg installed the
+    operator would get `ModuleNotFoundError: asyncpg` — an error about a missing
+    package, for an action that was never going to be supported.
+    """
+    if "sqlite" not in url:
+        backend = url.split("://")[0] or "this backend"
+        raise RuntimeError(
+            f"backup handles SQLite only; this deployment uses {backend}. Use "
+            "that engine's own tooling — pg_dump for PostgreSQL — which does "
+            "the job properly and is already part of your backup policy."
+        )
 
 
 def head_revision() -> str:
