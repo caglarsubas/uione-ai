@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from uione.a2a import (
@@ -21,6 +24,8 @@ from uione.api.deps import Services, default_schedule, get_principal, get_servic
 from uione.config import get_settings
 from uione.mcphub import Principal
 from uione.proactive import JobKind, Schedule, ScheduledJob
+
+log = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -161,6 +166,54 @@ async def chat(
         untrusted_content_seen=run.taint.tainted,
         notice=notice,
     )
+
+
+@router.post("/chat/stream")
+async def chat_stream(
+    request: ChatRequest,
+    principal: Principal = Depends(get_principal),
+    services: Services = Depends(get_services),
+) -> StreamingResponse:
+    """The same conversation, delivered as it happens.
+
+    **Server-sent events rather than a WebSocket.** Everything here flows one
+    way, so the second direction would be unused protocol. SSE is plain HTTP,
+    which matters more than it sounds for a product deployed behind somebody
+    else's reverse proxy: no upgrade handshake to be refused, no separate
+    timeout to be tuned, and it works through the corporate middleboxes that
+    quietly drop WebSocket upgrades.
+
+    The headers are not decoration. `X-Accel-Buffering: no` stops nginx
+    buffering the whole response and delivering it at once, which turns a stream
+    back into the wait it replaced — and is invisible in development, because
+    nobody runs nginx there.
+    """
+
+    async def events():
+        try:
+            async for kind, payload in services.runtime.stream(
+                principal, request.message, max_steps=request.max_steps
+            ):
+                yield _sse(kind, payload)
+        except Exception as exc:  # noqa: BLE001 — the client must learn it stopped
+            # Without this the connection simply ends, and a half-written answer
+            # is indistinguishable from a complete one.
+            log.exception("chat.stream_failed", principal=principal.user_id)
+            yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _sse(kind: str, payload: dict) -> str:
+    return f"event: {kind}\ndata: {json.dumps(payload)}\n\n"
 
 
 @router.get("/brief", response_model=BriefResponse)

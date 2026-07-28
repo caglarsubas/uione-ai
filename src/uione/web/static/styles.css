@@ -283,3 +283,24 @@ td.mono { font-family: var(--mono); font-size: 12.5px; }
   .brand, .sidebar-foot { display: none; }
   .main { padding: 18px; }
 }
+
+/* Streaming: progress above, answer below. */
+.answer {
+  white-space: pre-wrap;
+}
+.tool-trace .step {
+  /* Dimmer than the answer — progress is scaffolding, not content, and it
+     should recede once the reply arrives rather than compete with it. */
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.answer .bullet {
+  display: block;
+  padding-left: 0.5rem;
+}
+.answer code {
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
+  padding: 0 0.25rem;
+  border-radius: 3px;
+}

@@ -70,3 +70,68 @@ looks like real auth is how a placeholder reaches production.
 Streaming responses, mobile layout beyond a single breakpoint, keyboard
 navigation past tab order, and localisation — the copy is English-only while
 `UIONE` targets EN+TR at MVP (gap G18).
+
+
+## Streaming
+
+The reply used to arrive all at once, after the whole agent loop finished — four
+to nine seconds of spinner for a question that touched two systems.
+
+**Progress is the point, not tokens.** For an agent the tool calls take most of
+the wall clock: a mailbox round trip dwarfs the time to write a sentence about
+it. A user watching *"reading your mail…"* learns more than one watching the
+first sentence appear eight seconds later. Tokens stream too, but they are the
+smaller half of the improvement.
+
+```
+[ 0.00s] step 1
+[ 2.17s] calling incidents.my_incidents …   ✓
+[ 2.18s] calling mail.list_unread …         ✓
+[ 2.18s] step 2
+        You have **3 open incidents**: …
+[ 4.31s] done: completed after 2 step(s)
+```
+
+### Server-sent events, not a WebSocket
+
+Everything flows one way, so the second direction would be unused protocol. SSE
+is plain HTTP, which matters for a product deployed behind somebody else's
+reverse proxy: no upgrade handshake to be refused, no separate timeout to tune,
+and it survives the corporate middleboxes that quietly drop WebSocket upgrades.
+
+`X-Accel-Buffering: no` is not decoration. Without it nginx buffers the whole
+response and delivers it at once, turning a stream back into the wait it
+replaced — and it is invisible in development, because nobody runs nginx there.
+
+### `done` is the completion signal
+
+A client that never receives one knows its answer is truncated. Without that
+distinction a dropped connection produces a half-answer that *looks* finished,
+and the reader has no way to tell — worse than an error. A stream that dies
+leaves whatever arrived in place and says it stopped early, rather than
+discarding it.
+
+### A held action is not a failure
+
+`tool_result` carries `held` separately from `ok`. An action waiting for approval
+shown as an error teaches people to distrust the approval queue.
+
+### Markdown, escaped first
+
+The answer is rendered with the smallest markdown that makes it readable — bold,
+inline code, bullets — and the escaping happens first and unconditionally. An
+answer can contain text the model read out of an email, and an email is written
+by anyone, so treating any of it as markup is how a stranger puts HTML in this
+page.
+
+**No links and no images**, for a second reason beyond safety: a rendered link or
+image in an on-premise product is an outbound request to whatever host the text
+names, which is exactly the phone-home an air-gapped deployment exists to avoid.
+
+### Two bugs the browser caught that tests did not
+
+The stream hardcoded `Content-Type` instead of calling the page's `headers()`
+helper, so in dev auth mode it 401'd while every other call worked. And the token
+accumulator was named `raw`, colliding with the SSE frame's own `raw` — a
+`TypeError: Assignment to constant variable` that only appears when a token
+actually arrives.

@@ -204,6 +204,135 @@ class AgentRuntime:
             taint=taint,
         )
 
+    async def stream(
+        self,
+        principal: Principal,
+        user_message: str,
+        *,
+        history: list[ChatMessage] | None = None,
+        max_steps: int = 6,
+        task: TaskClass | None = None,
+        correlation_id: str | None = None,
+    ):
+        """The same loop, as a stream of events.
+
+        **Progress is the point, not tokens.** For an agent, the tool calls take
+        most of the wall clock — a mailbox round trip dwarfs the time to write a
+        sentence about it. A user watching "reading your mail…" learns more than
+        one watching the first sentence appear eight seconds later. Tokens are
+        streamed too, but they are the smaller half of the improvement.
+
+        Events are ``(kind, payload)`` pairs:
+
+        ``step``          a reasoning step began
+        ``tool``          a tool is about to run
+        ``tool_result``   it finished, with whether it was allowed or held
+        ``token``         a fragment of the answer
+        ``done``          the final answer and why the loop stopped
+        ``error``         the model plane failed
+
+        **`done` is the completion signal.** A client that never receives one
+        knows the answer it has is truncated. Without that distinction a dropped
+        connection produces a half-answer that looks finished, which is worse
+        than an error — the reader has no way to tell.
+        """
+        tools = self._gateway.tool_definitions_for(principal)
+        resolver = ToolNameResolver([t.name for t in tools])
+        specs = {s.qualified_name: s for s in self._gateway.tools_for(principal)}
+
+        messages: list[ChatMessage] = [
+            ChatMessage(role="system", content=self._system_prompt),
+            *(history or []),
+            ChatMessage(role="user", content=user_message),
+        ]
+        taint = TaintTracker()
+        task = task or self._router.route("plan")
+
+        for step in range(max_steps):
+            yield ("step", {"step": step + 1, "of": max_steps})
+
+            completion = None
+            try:
+                async for kind, value in self._model.stream(
+                    messages, task=task, tools=tools or None
+                ):
+                    if kind == "content":
+                        # Emitted as it arrives even though this turn may turn
+                        # out to request tools: a model that narrates before
+                        # calling something is telling the user what it is
+                        # about to do, which is exactly what they want to see.
+                        yield ("token", {"text": value})
+                    else:
+                        completion = value
+            except ModelPlaneError as exc:
+                log.warning("agent.stream_model_error", error=str(exc), step=step)
+                yield ("error", {"message": str(exc), "reason": str(StopReason.MODEL_ERROR)})
+                return
+
+            if completion is None:  # pragma: no cover — the stream always ends with one
+                yield ("error", {"message": "the model returned nothing"})
+                return
+
+            if not completion.tool_calls:
+                messages.append(ChatMessage(role="assistant", content=completion.content))
+                yield (
+                    "done",
+                    {
+                        "final": completion.content,
+                        "reason": str(StopReason.COMPLETED),
+                        "steps": step + 1,
+                    },
+                )
+                return
+
+            messages.append(
+                ChatMessage(
+                    role="assistant",
+                    content=completion.content,
+                    tool_calls=completion.tool_calls,
+                )
+            )
+
+            for call in completion.tool_calls:
+                yield ("tool", {"name": call.name})
+                invocation = await self._invoke(
+                    principal,
+                    call,
+                    resolver,
+                    specs,
+                    taint=taint,
+                    correlation_id=correlation_id,
+                )
+                yield (
+                    "tool_result",
+                    {
+                        "name": invocation.resolved_name or invocation.requested_name,
+                        "ok": invocation.ok,
+                        # Surfaced rather than folded into `ok`: an action waiting
+                        # for approval is not a failure, and a UI that shows it as
+                        # one teaches people to distrust the approval queue.
+                        "held": invocation.held,
+                        "error": invocation.result.error if not invocation.ok else None,
+                    },
+                )
+                messages.append(
+                    ChatMessage(
+                        role="tool",
+                        tool_call_id=call.id,
+                        name=invocation.resolved_name or invocation.requested_name,
+                        content=self._render_for_model(invocation, specs, taint),
+                    )
+                )
+
+        yield (
+            "done",
+            {
+                "final": None,
+                "reason": str(StopReason.STEP_BUDGET_EXHAUSTED),
+                "steps": max_steps,
+            },
+        )
+
     def _render_for_model(
         self, invocation: ToolInvocation, specs: dict, taint: TaintTracker
     ) -> str:
