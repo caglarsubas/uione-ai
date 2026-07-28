@@ -31,6 +31,7 @@ from uione.governance.containment import TaintTracker, TrustLevel
 from uione.knowledge import EntityKind, ExtractionRules, GraphItem, WorkGraph, entity
 from uione.mcphub import McpGateway, Principal
 from uione.modelplane import ChatMessage, ModelPlaneClient, ModelPlaneError, TaskClass
+from uione.modelplane.admission import Priority
 
 log = structlog.get_logger(__name__)
 
@@ -227,6 +228,9 @@ class BriefGenerator:
                     ChatMessage(role="user", content=prompt),
                 ],
                 task=TaskClass.REASONING,
+                # Nobody is watching a brief being written; a person asking a
+                # question is. This is what lets the question overtake it.
+                priority=Priority.BACKGROUND,
             )
         except ModelPlaneError as exc:
             # The gathered data is still worth showing. A brief without prose

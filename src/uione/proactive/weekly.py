@@ -32,6 +32,7 @@ import structlog
 from uione.agent.language import with_proactive_language
 from uione.analysis.anomaly import Detector, Finding, Point, Report
 from uione.modelplane import ChatMessage, ModelPlaneClient, ModelPlaneError, TaskClass
+from uione.modelplane.admission import Priority
 
 log = structlog.get_logger(__name__)
 
@@ -203,6 +204,7 @@ class WeeklyReviewGenerator:
                     ChatMessage(role="user", content=prompt),
                 ],
                 task=TaskClass.REASONING,
+                priority=Priority.BACKGROUND,
             )
         except ModelPlaneError as exc:
             log.warning("weekly.model_unavailable", error=str(exc))
