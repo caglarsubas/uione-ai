@@ -19,7 +19,7 @@ import asyncio
 import sys
 
 from uione.config import get_settings
-from uione.storage.database import Database, _safe_url, head_revision
+from uione.storage.database import Database, _safe_url, head_revision, require_sqlite
 
 USAGE = """usage: python -m uione.storage.cli <command>
 
@@ -27,10 +27,7 @@ USAGE = """usage: python -m uione.storage.cli <command>
   upgrade   run every outstanding migration
   stamp     record the database as current WITHOUT running anything
   sql       print the SQL an upgrade would run, and change nothing
-
-`stamp` is for one situation: a deployment that predates migrations and whose
-schema already matches. Using it on a database that is genuinely behind marks it
-current while leaving it broken, and the failure appears later somewhere else.
+  backup    write a consistent copy of the database, safely, while it runs
 """
 
 
@@ -98,6 +95,30 @@ def _sql() -> int:
     return 0
 
 
+async def _backup(destination: str) -> int:
+    try:
+        # Checked before the engine exists: building one loads the driver, and
+        # a missing-driver traceback is not the answer to "can I back this up".
+        require_sqlite(get_settings().database_url)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    database = Database()
+    try:
+        target = await database.backup_to(destination)
+        size = target.stat().st_size
+        print(f"wrote {target} ({size / 1024:.0f} KB)")
+        print("\nThis is a complete database. To restore it, stop the service and")
+        print("put it back where UIONE_DATABASE_URL points, then run `status`.")
+        return 0
+    except (FileExistsError, RuntimeError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        await database.dispose()
+
+
 def main(argv: list[str] | None = None) -> int:
     args = (argv if argv is not None else sys.argv[1:]) or []
     if not args or args[0] in {"-h", "--help", "help"}:
@@ -113,6 +134,11 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_stamp())
         case "sql":
             return _sql()
+        case "backup":
+            if len(args) < 2:
+                print("usage: backup <path>", file=sys.stderr)
+                return 2
+            return asyncio.run(_backup(args[1]))
         case unknown:
             print(f"unknown command {unknown!r}\n\n{USAGE}", file=sys.stderr)
             return 2
