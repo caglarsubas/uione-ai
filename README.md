@@ -108,6 +108,7 @@ is at `/system/health`.
 - [Work graph](docs/WORK_GRAPH.md) — deterministic cross-system entity resolution, and why v1 avoids fuzzy matching.
 - [Retrieval](docs/RETRIEVAL.md) — permission-aware search, and why filtering must precede ranking.
 - [Evals](docs/EVALS.md) — including the language suite and what it measured. — the golden-task gate, current results, and the two failures it caught.
+- [Docker](docs/DOCKER.md) — `make up`, and what is deliberately not in the image.
 - [Migrations](docs/MIGRATIONS.md) — upgrading a database that has data worth keeping.
 - [Storage](docs/STORAGE.md) — what durability protects, and how it was verified across processes.
 - [Scheduler](docs/SCHEDULER.md) — how the brief becomes proactive, and the 10s → 2ms measurement.

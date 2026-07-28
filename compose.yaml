@@ -1,0 +1,190 @@
+# The whole product, in one command.
+#
+#   docker compose up --build     everything, provisioned, UI on :8000
+#
+# What comes up: UiOne itself, the mocked vendors nobody can reach without a
+# contract, and real Gitea, Grafana and Mattermost. The UI works immediately —
+# incidents and claims come from the mocks, mail and calendar from fixtures.
+#
+# To connect the *real* Gitea, Grafana and Mattermost as well:
+#
+#   make provision                 creates the accounts and tokens
+#   docker compose restart app     the app picks them up
+#
+# That step runs on the host rather than as a service here, because creating
+# Gitea's first admin needs `gitea admin user create` inside its container. The
+# alternative is handing a provisioning container the host's Docker socket,
+# which is a far worse trade than one extra command.
+#
+# **The model plane is not in here.** It runs on the host, and the app reaches
+# it through host.docker.internal. Putting an inference engine in this file
+# would mean shipping several gigabytes of weights to run a demo, and an
+# air-gapped customer already has their engine — the whole premise is that we
+# talk to theirs rather than bring our own. Point UIONE_MODEL_PLANE_URL at
+# whatever you run.
+#
+# Everything is bound to 127.0.0.1. None of these services should be reachable
+# from the network while they hold demo credentials.
+
+name: uione
+
+services:
+  app:
+    build: .
+    image: uione:local
+    depends_on:
+      mocks:
+        condition: service_healthy
+    environment:
+      UIONE_ENVIRONMENT: dev
+      UIONE_AUTH_MODE: dev
+      UIONE_DATABASE_URL: sqlite+aiosqlite:////data/uione.db
+      UIONE_MODEL_PLANE_URL: ${UIONE_MODEL_PLANE_URL:-http://host.docker.internal:11434/v1}
+      UIONE_MODEL_TIER_TRIAGE: ${UIONE_MODEL_TIER_TRIAGE:-ministral-3:8b}
+      UIONE_MODEL_TIER_WORKHORSE: ${UIONE_MODEL_TIER_WORKHORSE:-ministral-3:8b}
+      UIONE_MODEL_TIER_REASONING: ${UIONE_MODEL_TIER_REASONING:-ministral-3:8b}
+      UIONE_MODEL_TIER_EMBEDDING: ${UIONE_MODEL_TIER_EMBEDDING:-embeddinggemma:300m}
+      UIONE_INTERNAL_DOMAINS: corp.example
+      UIONE_TICKET_PREFIXES: PAY,OPS,INC
+      UIONE_LOCALE: ${UIONE_LOCALE:-en}
+      # The mocked vendors, which need no credentials by design.
+      UIONE_SERVICENOW_URL: http://mocks:9102
+      UIONE_SERVICENOW_USERNAME: uione
+      UIONE_SERVICENOW_PASSWORD: mock
+      UIONE_CLAIMS_URL: http://mocks:9103
+      # A share to index and write documents into, on a volume so it survives.
+      UIONE_FILES_ROOT: /data/share
+    # NOTE: there is deliberately no `env_file` for the provisioned settings.
+    # Compose reads env_file from the *host* when it builds the config, and the
+    # tokens do not exist until the provisioner has run inside the network. The
+    # entrypoint sources /run/estate/env at startup instead, which is the only
+    # ordering that actually works.
+    volumes:
+      - app-data:/data
+      # A *directory* mount, not a file. Bind-mounting a file that does not
+      # exist yet makes Docker create a directory in its place, and the error
+      # that follows says nothing about why.
+      - ./estate:/run/estate:ro
+    ports:
+      # Overridable, because 8000 is the most contested port on any developer's
+      # machine: UIONE_HTTP_PORT=8080 docker compose up -d
+      - "127.0.0.1:${UIONE_HTTP_PORT:-8000}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  mocks:
+    image: uione:local
+    build: .
+    # 0.0.0.0 here means "reachable by the app container", not "reachable from
+    # the building" — the ports below publish to 127.0.0.1 only, and that is
+    # what decides exposure. The flag is verbose on purpose.
+    command:
+      - python
+      - -m
+      - uione.vendormocks
+      - --host
+      - 0.0.0.0
+      - --i-understand-this-is-open
+    environment:
+      PYTHONUNBUFFERED: "1"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9102/api/now/table/incident?sysparm_limit=1' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:9101:9101"
+      - "127.0.0.1:9102:9102"
+      - "127.0.0.1:9103:9103"
+    restart: unless-stopped
+
+  # -- the real systems ----------------------------------------------------
+  # Tier A: self-hostable, which is why this product verifies against them
+  # rather than mocking them. See docs/VENDOR_ACCESS.md.
+
+  gitea:
+    image: gitea/gitea:1.24
+    environment:
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__server__ROOT_URL: http://localhost:3300/
+      GITEA__service__DISABLE_REGISTRATION: "true"
+    volumes:
+      - gitea-data:/data
+    ports:
+      - "127.0.0.1:3300:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/api/v1/version || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      # Must match GRAFANA_PASSWORD in scripts/estate.py — the provisioner logs
+      # in with it to mint the service-account token. Demo credentials for a
+      # loopback-only service; nothing here is a secret worth protecting.
+      GF_SECURITY_ADMIN_PASSWORD: uione-dev-pw
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3400:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+
+  mattermost-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mm
+      POSTGRES_PASSWORD: mm
+      POSTGRES_DB: mattermost
+    volumes:
+      - mattermost-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mm"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  mattermost:
+    # NOTE: amd64-only for this tag, so on Apple silicon it boots emulated and
+    # takes a minute or two. The healthcheck waits rather than assuming.
+    image: mattermost/mattermost-team-edition:10.5
+    depends_on:
+      mattermost-db:
+        condition: service_healthy
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mm:mm@mattermost-db:5432/mattermost?sslmode=disable
+      MM_SERVICESETTINGS_SITEURL: http://localhost:8065
+      # Personal access tokens are off by default and are how the connector
+      # authenticates; without this the provisioner creates a user it then
+      # cannot get a durable credential for.
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
+      MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"
+      MM_LOGSETTINGS_ENABLECONSOLE: "false"
+    volumes:
+      - mattermost-data:/mattermost/data
+    ports:
+      - "127.0.0.1:8065:8065"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8065/api/v4/system/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+volumes:
+  app-data:
+  gitea-data:
+  grafana-data:
+  mattermost-db:
+  mattermost-data:

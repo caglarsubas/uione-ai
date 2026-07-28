@@ -28,6 +28,7 @@ import argparse
 import base64
 import http.client
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -38,11 +39,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 COMPOSE = ROOT / "estate" / "docker-compose.yml"
-ENV_FILE = ROOT / ".env.estate"
+#: Where provisioned settings land. Overridable so the compose provisioner can
+#: write onto a volume the app reads, while a host run still writes
+#: .env.estate next to the repo where a person expects to find it.
+ENV_FILE = (
+    Path(os.environ["ESTATE_ENV_FILE"])
+    if os.environ.get("ESTATE_ENV_FILE")
+    else ROOT / ".env.estate"
+)
 
-GITEA = "http://127.0.0.1:3300"
-GRAFANA = "http://127.0.0.1:3400"
-MATTERMOST = "http://127.0.0.1:8065"
+# Overridable so the same provisioning runs from the host (against published
+# ports) and from inside the compose network (against service names). Without
+# this there would be two copies of the same logic, and the container copy
+# would be the one nobody notices has drifted.
+GITEA = os.environ.get("ESTATE_GITEA_URL", "http://127.0.0.1:3300")
+GRAFANA = os.environ.get("ESTATE_GRAFANA_URL", "http://127.0.0.1:3400")
+MATTERMOST = os.environ.get("ESTATE_MATTERMOST_URL", "http://127.0.0.1:8065")
 
 GITEA_USER = "uione"
 GITEA_PASSWORD = "uione-dev-pw"
@@ -129,6 +141,27 @@ def docker_exec(container: str, *args: str) -> tuple[int, str]:
     return result.returncode, (result.stdout + result.stderr).strip()
 
 
+def find_container(*candidates: str) -> str:
+    """The first of these container names that actually exists.
+
+    Compose names containers `<project>-<service>-<index>`, so the same Gitea is
+    `uione-gitea-1` under compose and `uione-gitea` when started by this script.
+    Hardcoding one meant the other silently took the "container not found" path
+    — which the caller then reported as "user already exists", turning an
+    infrastructure failure into a reassuring message and a 401 three lines later.
+    """
+    if shutil.which("docker") is None:
+        return ""
+    result = subprocess.run(
+        ["docker", "ps", "--format", "{{.Names}}"], capture_output=True, text=True, check=False
+    )
+    running = set(result.stdout.split())
+    for name in candidates:
+        if name in running:
+            return name
+    return ""
+
+
 # -- Gitea -----------------------------------------------------------------
 
 
@@ -136,18 +169,30 @@ def provision_gitea() -> str:
     print("\nGitea")
     wait_for("  gitea", f"{GITEA}/api/v1/version")
 
+    container = find_container("uione-gitea-1", "uione-gitea")
+    if not container:
+        raise SystemExit(
+            "  no running Gitea container found (looked for uione-gitea-1 and "
+            "uione-gitea). Start the stack first: docker compose up -d"
+        )
+
     # `user create` fails if the account exists, which on a second run it does.
-    # Treated as success rather than checked first: there is no race-free way to
-    # ask, and the error is unambiguous.
+    # That specific failure is fine; any other is not, and conflating them is
+    # what hid a missing container behind a cheerful "already exists".
     code, output = docker_exec(
-        "uione-gitea",
+        container,
         "su",
         "git",
         "-c",
         f"gitea admin user create --username {GITEA_USER} --password {GITEA_PASSWORD} "
         f"--email dev@corp.example --admin --must-change-password=false",
     )
-    print("  user created" if code == 0 else "  user already exists")
+    if code == 0:
+        print("  user created")
+    elif "already exists" in output.lower():
+        print("  user already exists")
+    else:
+        raise SystemExit(f"  could not create the Gitea admin user: {output[:300]}")
 
     # Tokens cannot be read back, so an existing one is useless to us. Delete
     # and recreate, which keeps `up` idempotent without accumulating tokens.
@@ -220,19 +265,30 @@ def provision_grafana() -> str:
     admin = ("admin", GRAFANA_PASSWORD)
 
     status, accounts = request(f"{GRAFANA}/api/serviceaccounts/search?query=uione", basic=admin)
-    found = accounts.get("serviceAccounts") if isinstance(accounts, dict) else None
-    if found:
-        account_id = found[0]["id"]
+    candidates = accounts.get("serviceAccounts") if isinstance(accounts, dict) else None
+    # Exact name, not the first result: Grafana's search is a substring match,
+    # so "uione" also returns anything merely containing it and the token would
+    # be issued against whichever account happened to sort first.
+    existing = [a for a in (candidates or []) if a.get("name") == "uione"]
+
+    if existing:
+        account_id = existing[0]["id"]
     else:
         # Viewer, deliberately. The connector has no write tool, and a token
         # that cannot silence an alert makes that guarantee structural rather
         # than a promise in a docstring.
-        _, created = request(
+        status, created = request(
             f"{GRAFANA}/api/serviceaccounts",
             method="POST",
             basic=admin,
             body={"name": "uione", "role": "Viewer"},
         )
+        if status not in (200, 201) or not isinstance(created, dict) or "id" not in created:
+            # Reported here rather than left to a KeyError further down, which
+            # says "id" and nothing about Grafana having refused.
+            raise SystemExit(
+                f"  Grafana refused to create the service account ({status}): {str(created)[:300]}"
+            )
         account_id = created["id"]
     print(f"  service account {account_id} (Viewer)")
 
@@ -504,6 +560,22 @@ def _seed_mattermost_conversation(session: str, me: dict, team: dict) -> None:
 # -- output ----------------------------------------------------------------
 
 
+def app_url(provisioning_url: str, service: str, port: int) -> str:
+    """The URL *the app* should use, which is not always the one we provisioned with.
+
+    Provisioning runs on the host and talks to published ports on 127.0.0.1.
+    The app usually runs in a container, where 127.0.0.1 is the container
+    itself — so writing the provisioning URL into its settings points it at its
+    own loopback and every connector reports the system as down.
+
+    ESTATE_TARGET=compose writes compose service names instead. Default stays
+    the provisioning URL, so a host-run app is unaffected.
+    """
+    if os.environ.get("ESTATE_TARGET") == "compose":
+        return f"http://{service}:{port}"
+    return provisioning_url
+
+
 def write_env(gitea_token: str, grafana_token: str, mattermost_token: str) -> None:
     ENV_FILE.write_text(
         "\n".join(
@@ -511,13 +583,13 @@ def write_env(gitea_token: str, grafana_token: str, mattermost_token: str) -> No
                 "# Written by scripts/estate.py. Gitignored, regenerated on every `up`.",
                 "# Every credential here is disposable and every service is loopback-only.",
                 "",
-                f"UIONE_GITEA_URL={GITEA}",
+                f"UIONE_GITEA_URL={app_url(GITEA, 'gitea', 3000)}",
                 f"UIONE_GITEA_TOKEN={gitea_token}",
                 "",
-                f"UIONE_GRAFANA_URL={GRAFANA}",
+                f"UIONE_GRAFANA_URL={app_url(GRAFANA, 'grafana', 3000)}",
                 f"UIONE_GRAFANA_TOKEN={grafana_token}",
                 "",
-                f"UIONE_MATTERMOST_URL={MATTERMOST}",
+                f"UIONE_MATTERMOST_URL={app_url(MATTERMOST, 'mattermost', 8065)}",
                 f"UIONE_MATTERMOST_TOKEN={mattermost_token}",
                 "",
                 "# Mocks — see docs/VENDOR_ACCESS.md for why these are not real systems.",
@@ -534,6 +606,20 @@ def write_env(gitea_token: str, grafana_token: str, mattermost_token: str) -> No
     )
     ENV_FILE.chmod(0o600)
     print(f"\nWrote {ENV_FILE.name} (mode 600)")
+
+
+def provision() -> None:
+    """Create the accounts and tokens, and start nothing.
+
+    The mode compose uses: the containers are already up and managed by
+    compose itself, so this must not try to start them. Splitting it out is
+    what lets one `docker compose up` reach a provisioned estate without a
+    second command — the app waits on this finishing.
+    """
+    gitea_token = provision_gitea()
+    grafana_token = provision_grafana()
+    mattermost_token = provision_mattermost()
+    write_env(gitea_token, grafana_token, mattermost_token)
 
 
 def up() -> None:
@@ -582,9 +668,15 @@ def destroy() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("command", choices=["up", "status", "down", "destroy"])
+    parser.add_argument("command", choices=["up", "provision", "status", "down", "destroy"])
     args = parser.parse_args()
-    {"up": up, "status": status, "down": down, "destroy": destroy}[args.command]()
+    {
+        "up": up,
+        "provision": provision,
+        "status": status,
+        "down": down,
+        "destroy": destroy,
+    }[args.command]()
 
 
 if __name__ == "__main__":

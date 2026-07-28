@@ -91,17 +91,43 @@ document.querySelectorAll(".nav-btn").forEach((btn) => {
  * model emits a narrow subset, and pulling in a markdown library would defeat
  * the point of shipping no dependencies. Everything is escaped first, so model
  * output cannot inject markup — it is untrusted text like any other. */
-function renderBrief(text) {
+/**
+ * The smallest markdown that makes model output readable.
+ *
+ * One function for the brief and the chat answer both. There used to be two,
+ * differing in which rules they applied — the brief rendered headings, the chat
+ * rendered nothing italic — so the same sentence looked different depending on
+ * which tab you read it in.
+ *
+ * Escaping happens first and unconditionally. This text can contain whatever
+ * the model read out of an email, and an email is written by anyone; treating
+ * any of it as markup is how a stranger gets HTML into this page.
+ *
+ * Deliberately no links and no images. Beyond the safety argument, a rendered
+ * link or image in an on-premise product is an outbound request to whatever
+ * host the text names — exactly the phone-home an air-gapped deployment exists
+ * to avoid.
+ */
+function renderMarkdown(text) {
   const escaped = text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  return escaped
-    .replace(/^#{1,6}\s*(.+)$/gm, "<h3>$1</h3>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/^\s*[-*]\s+/gm, "• ")
-    .replace(/^---+$/gm, "");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+  return (
+    escaped
+      .replace(/^#{1,6}\s*(.+)$/gm, "<h3>$1</h3>")
+      // Bold before italic: **x** would otherwise be read as an empty italic
+      // wrapped around another, and the asterisks would survive on screen.
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      // The content may not begin or end with a space, so "2 * 3 * 4" stays
+      // arithmetic instead of becoming italics around a 3.
+      .replace(/(^|[\s(])\*(\S|\S[^*\n]*\S)\*/g, "$1<em>$2</em>")
+      .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+      .replace(/^\s*[-*]\s+/gm, "• ")
+      .replace(/^---+$/gm, "")
+  );
 }
 
 async function loadBrief(refresh = false) {
@@ -142,7 +168,7 @@ async function loadBrief(refresh = false) {
     $("#brief-notices").append(notice("info", brief.notice));
   }
 
-  body.innerHTML = renderBrief(brief.body || "(no brief)");
+  body.innerHTML = renderMarkdown(brief.body || "(no brief)");
 
   const meta = $("#brief-meta");
   for (const section of brief.sections) {
@@ -226,29 +252,8 @@ async function send() {
   }
 }
 
-/**
- * The smallest markdown that makes an answer readable: bold, inline code, and
- * bullets. Deliberately no links and no images.
- *
- * Escaping happens first and unconditionally. An answer can contain text the
- * model read out of an email, and an email is written by anyone — so treating
- * any of it as markup is how a stranger gets to put HTML in this page.
- *
- * Links are omitted for a second reason: a rendered image or link in an
- * on-premise product is an outbound request to whatever host the text names,
- * which is exactly the phone-home an air-gapped deployment is meant not to do.
- */
 function renderAnswer(node, text) {
-  const escaped = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-
-  node.innerHTML = escaped
-    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-    .replace(/^[-*] (.+)$/gm, "<span class=\"bullet\">• $1</span>");
+  node.innerHTML = renderMarkdown(text);
 }
 
 /** Consume the SSE stream, rendering progress and tokens as they arrive. */
