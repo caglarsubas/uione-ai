@@ -226,3 +226,61 @@ def test_ingesting_the_same_item_twice_is_idempotent(graph: WorkGraph) -> None:
     graph.add(item("incidents.active", EntityKind.INCIDENT, "INC-4471", title="Same"))
 
     assert len(graph.items) == before
+
+
+# -- ServiceNow record numbers ----------------------------------------------
+#
+# These carry no separator, so the hyphenated pattern cannot see them. Before
+# this existed, connecting the ServiceNow connector meant incidents linked to
+# nothing: an email naming INC0010001 and the incident itself were unrelated
+# records as far as the work graph was concerned — the product's differentiating
+# feature failing silently on its most likely enterprise source.
+
+
+def test_a_servicenow_incident_number_is_an_identifier() -> None:
+    found = extract_entities("Incident INC0010001 opened at 07:35", RULES)
+
+    assert entity(EntityKind.INCIDENT, "INC0010001") in found
+
+
+def test_a_change_record_is_a_ticket_not_an_incident() -> None:
+    """The table the number comes from says what kind of thing it is."""
+    found = extract_entities("CHG0030004 is scheduled for Sunday", RULES)
+
+    assert entity(EntityKind.TICKET, "CHG0030004") in found
+    assert entity(EntityKind.INCIDENT, "CHG0030004") not in found
+
+
+def test_it_works_without_the_prefix_being_declared() -> None:
+    """A deployment that connected ServiceNow but never added "INC" to its
+    prefix list would otherwise find that incidents link to nothing."""
+    rules = ExtractionRules(ticket_prefixes=frozenset({"PAY"}))
+
+    found = extract_entities("see INC0010001", rules)
+
+    assert entity(EntityKind.INCIDENT, "INC0010001") in found
+
+
+def test_it_can_be_switched_off() -> None:
+    """ "Declare nothing, extract nothing" stays available, because every field
+    in this module is configuration."""
+    rules = ExtractionRules(ticket_prefixes=frozenset(), extract_servicenow=False)
+
+    assert extract_entities("see INC0010001", rules) == set()
+
+
+@pytest.mark.parametrize("text", ["COVID-19 update", "UTF-8 encoding", "INC001", "INC00100012"])
+def test_prose_is_not_mistaken_for_a_record_number(text: str) -> None:
+    """Seven digits exactly, no separator. The shape is the whole filter, so it
+    has to be a tight one."""
+    found = extract_entities(text, ExtractionRules(ticket_prefixes=frozenset()))
+
+    assert found == set()
+
+
+def test_a_lowercase_reference_still_matches() -> None:
+    """People write "inc0010001" in email, and dropping it loses exactly the
+    cross-system link this module exists to find."""
+    found = extract_entities("looking at inc0010001 now", RULES)
+
+    assert entity(EntityKind.INCIDENT, "INC0010001") in found
