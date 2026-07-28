@@ -42,35 +42,16 @@
       <p class="subtitle">
         Acts across your systems. Anything that changes something is held for your approval first.
       </p>
-      <!-- Presence.
-           The avatar is an instrument, not decoration: every state below is
-           driven by an event from the server, so a still face means nothing is
-           happening and a moving one means something is. An idle animation on a
-           timer would be a lie of exactly the kind this product avoids
-           elsewhere. -->
+      <!-- Presence, but no face.
+           A face is a claim of intent, and this product's whole pitch is that it
+           has no intent it has not shown you. What moves is a readout: a state
+           glyph plus the live tool tape, which carries strictly more information
+           than an expression and cannot misrepresent anything. See DESIGN.md. -->
       <div class="presence" id="presence" data-state="idle">
-        <svg class="avatar" viewBox="0 0 72 72" aria-hidden="true" focusable="false">
-          <!-- The halo carries state colour. Separate from the face so the
-               face never has to be recoloured, which reads as a mood swing. -->
-          <circle class="halo" cx="36" cy="36" r="31"></circle>
-          <rect class="face" x="14" y="16" width="44" height="40" rx="14"></rect>
-          <g class="eyes">
-            <circle class="eye eye-l" cx="27" cy="34" r="3.6"></circle>
-            <circle class="eye eye-r" cx="45" cy="34" r="3.6"></circle>
-          </g>
-          <!-- The mouth is a waveform whose bars are driven by token arrival.
-               When tokens stop, it stops — so a stalled model looks stalled. -->
-          <g class="mouth">
-            <rect class="bar" x="27" y="44" width="2.6" height="4" rx="1.3"></rect>
-            <rect class="bar" x="31.5" y="44" width="2.6" height="4" rx="1.3"></rect>
-            <rect class="bar" x="36" y="44" width="2.6" height="4" rx="1.3"></rect>
-            <rect class="bar" x="40.5" y="44" width="2.6" height="4" rx="1.3"></rect>
-            <rect class="bar" x="45" y="44" width="2.6" height="4" rx="1.3"></rect>
-          </g>
-        </svg>
+        <span class="presence-glyph" aria-hidden="true"></span>
         <div class="presence-text">
           <div class="presence-state" id="presence-state">Ready</div>
-          <div class="presence-detail" id="presence-detail">Ask about your work.</div>
+          <div class="tape" id="tape"></div>
         </div>
       </div>
 
