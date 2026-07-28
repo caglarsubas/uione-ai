@@ -99,6 +99,7 @@ from uione.storage import (
     SqlApprovalStore,
     SqlAuditSink,
     WatermarkStore,
+    head_revision,
 )
 
 log = structlog.get_logger(__name__)
@@ -355,11 +356,67 @@ def build_ingestion(settings: Settings, ingestor: Ingestor) -> None:
         log.info("ingest.source_registered", source="files", root=settings.files_root)
 
 
+async def prepare_database(database: Database, settings: Settings) -> None:
+    """Bring the schema to a state the application can run against.
+
+    An empty database is created and stamped — a first run should not require an
+    operator to run a migration against nothing.
+
+    A database that is *behind* is a different matter. Starting anyway means
+    running new code against an old schema, which does not fail at startup where
+    it would be noticed; it fails later, in one query, as "no such column", and
+    by then the process has been serving traffic. So it refuses, and the message
+    says exactly what to run.
+    """
+    current = await database.current_revision()
+
+    if current is None and not await database.has_tables():
+        await database.create_schema()
+        return
+
+    if await database.is_current():
+        return
+
+    if current is None:
+        # Tables but no migration record: a deployment that predates migrations.
+        # Auto-upgrade cannot help — it would try to create tables that already
+        # exist and fail on the first one — so this needs a person either way.
+        raise RuntimeError(
+            "this database has tables but no migration record, which means it "
+            "predates migrations. If its schema already matches this build, run "
+            "`python -m uione.storage.cli stamp`. If it does not, restore a "
+            "backup first — stamping a database that is behind marks it current "
+            "while leaving it broken."
+        )
+
+    if not database.knows_revision(current):
+        # The database is at a revision this build has never heard of, which
+        # means it was created by a *newer* version of the product and somebody
+        # has rolled the application back. Alembic's own error for this is a
+        # ResolutionError naming a hex string, which tells an operator nothing.
+        raise RuntimeError(
+            f"this database is at revision {current}, which this build does not "
+            "know about — it was created by a newer version of UiOne. Roll the "
+            "application forward again, or restore a backup taken before the "
+            "upgrade. Migrating it from here is not possible."
+        )
+
+    if settings.db_auto_upgrade:
+        log.warning("storage.auto_upgrading", **{"from": current})
+        await database.upgrade()
+        return
+
+    raise RuntimeError(
+        f"the database schema is at {current} but this build needs "
+        f"{head_revision()}. Run `python -m uione.storage.cli upgrade`."
+    )
+
+
 async def build_services() -> Services:
     settings = get_settings()
 
     database = Database(settings)
-    await database.create_schema()
+    await prepare_database(database, settings)
     audit_sink = SqlAuditSink(database)
 
     # Autonomy is read on every mutating call, so its records are cached in

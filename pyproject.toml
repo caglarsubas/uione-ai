@@ -15,6 +15,10 @@ dependencies = [
     "sse-starlette>=2.1",
     "jsonschema>=4.23",
     "sqlalchemy[asyncio]>=2.0",
+    # Migrations. A runtime dependency rather than a dev one: an air-gapped
+    # operator upgrades the product with the image they were given, and a
+    # migration tool that is not in it is a migration they cannot run.
+    "alembic>=1.13",
     "aiosqlite>=0.20",
     "pyjwt[crypto]>=2.9",
     "icalendar>=6.0",
@@ -68,3 +72,8 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# Alembic writes these. Hand-wrapping them would be undone by the next
+# autogenerate, and a migration is read for what it does, not its margins.
+"src/uione/storage/migrations/versions/*.py" = ["E501"]
