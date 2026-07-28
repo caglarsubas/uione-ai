@@ -1,6 +1,6 @@
 """Durable storage for governance state."""
 
-from uione.storage.database import Database
+from uione.storage.database import Database, head_revision
 from uione.storage.models import (
     AuditRow,
     AutonomyRow,
@@ -32,6 +32,7 @@ from uione.storage.state import (
 )
 
 __all__ = [
+    "head_revision",
     "AuditRow",
     "AutonomyRow",
     "Base",

@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     # --- Persistence ---
     database_url: str = "sqlite+aiosqlite:///./uione.db"
 
+    #: Run outstanding migrations at startup instead of refusing to start.
+    #:
+    #: Off by default, and the default is the interesting choice. Auto-upgrade
+    #: is convenient for a single-node appliance and wrong for anything else:
+    #: two replicas starting together both migrate, and a migration that goes
+    #: badly takes production with it before anyone has read it. Refusing to
+    #: start is loud, immediate, and recoverable.
+    db_auto_upgrade: bool = False
+
     # --- Mail connector ---
     # Empty host keeps the fixture connector, so a fresh checkout runs with no
     # infrastructure. Setting a host switches to the real IMAP/SMTP backend.
