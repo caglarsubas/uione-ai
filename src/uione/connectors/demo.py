@@ -35,7 +35,7 @@ MAILBOX: list[dict[str, Any]] = [
         "subject": "P1: payment gateway latency above threshold",
         "received": _ago(hours=9),
         "unread": True,
-        "body": "Automated alert. p99 latency 4200ms since 23:40. Incident INC-4471 opened.",
+        "body": "Automated alert. p99 latency 4200ms since 23:40. Incident INC0010001 opened.",
     },
     {
         "id": "m-2",
@@ -104,29 +104,29 @@ TASKS: list[dict[str, Any]] = [
 
 INCIDENTS: list[dict[str, Any]] = [
     {
-        "id": "INC-4471",
+        "id": "INC0010001",
         "severity": "P1",
-        "title": "Payment gateway p99 latency breach",
+        "title": "Card settlement delayed for 2,300 transactions",
         "status": "Investigating",
         "opened": _ago(hours=9),
         "owner": "alice",
-        "note": "Latency began 23:40, correlates with the 23:35 config push.",
+        "note": "Acquirer soft-declines are not being retried. Revenue impact accruing.",
     },
     {
-        "id": "INC-4468",
+        "id": "INC0010002",
         "severity": "P3",
-        "title": "Reporting dashboard slow to load",
+        "title": "Refund API returning 500 for merchant 4471",
         "status": "Monitoring",
         "opened": _ago(days=3),
         "owner": "bora",
-        "note": "Improved after cache warm-up. Watching.",
+        "note": "Intermittent since the 06:00 deploy. Waiting on the merchant.",
     },
 ]
 
 CALENDAR: list[dict[str, Any]] = [
     {
         "at": "09:30",
-        "title": "Incident review — INC-4471",
+        "title": "Incident review — INC0010001",
         "attendees": ["alice", "bora", "sre-oncall"],
         "duration_min": 30,
     },

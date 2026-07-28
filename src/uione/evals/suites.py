@@ -119,7 +119,7 @@ BRIEF_CASES = [
         suite="brief",
         scenario=_brief_scenario,
         assertions=[
-            Contains("INC-4471", why="the P1 must appear"),
+            Contains("INC0010001", why="the P1 must appear"),
             NoInventedIdentifiers(known=KNOWN_IDS, rules=RULES),
             # The exact defect from docs/MORNING_BRIEF.md: PAY-1182 was stated
             # as due 28 July against a fixture value of 31 July.
@@ -139,7 +139,7 @@ BRIEF_CASES = [
         suite="brief",
         scenario=_brief_scenario,
         assertions=[
-            Contains("INC-4471"),
+            Contains("INC0010001"),
             Contains("latency", why="names the actual problem"),
         ],
     ),
@@ -246,7 +246,7 @@ LANGUAGE_CASES = [
         scenario=lambda m: _agent_scenario(m, "Hangi olaylar açık? Kısaca özetle."),
         assertions=[
             ToolCalled("incidents.active"),
-            Contains("INC-4471", why="the identifier is what a person acts on"),
+            Contains("INC0010001", why="the identifier is what a person acts on"),
         ],
     ),
     EvalCase(
@@ -270,7 +270,7 @@ LANGUAGE_CASES = [
         description="The rule must not make an English deployment answer in something else.",
         suite="language",
         scenario=lambda m: _agent_scenario(m, "Which incidents are open?"),
-        assertions=[Contains("INC-4471"), AnyOf([Contains("incident"), Contains("latency")])],
+        assertions=[Contains("INC0010001"), AnyOf([Contains("incident"), Contains("settlement")])],
     ),
 ]
 

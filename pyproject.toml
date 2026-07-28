@@ -31,7 +31,12 @@ dev = [
     # our own client is validated against. Nothing in src/ imports it — a client
     # that ships with the product should be one the product owns, and an
     # air-gapped install should not carry a dependency it never calls.
-    "mcp>=1.2",
+    # Bounded below 2.0 deliberately. `mcp` 2.0.0 removed
+    # `mcp.server.fastmcp`, which is what the reference server in the test suite
+    # is built on, and an unbounded requirement let a third party break CI with
+    # no change from us — green on one commit, red on the next, same code.
+    # Moving to the 2.x API is real work and belongs in its own change.
+    "mcp>=1.2,<2",
     # A real CalDAV server, for the same reason as `mcp` above: writing
     # iCalendar is unforgiving and a fixture that accepts our output proves
     # only that we agree with ourselves. Pure Python, so CI runs it.

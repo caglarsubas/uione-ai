@@ -82,3 +82,40 @@ servers: bi, calendar, claims, incidents, knowledge, mail, tasks
 
     make estate-down      # stop, keep the data volumes
     make estate-destroy   # stop, delete volumes and .env.estate
+
+
+## One story, told consistently
+
+Every source in the estate now uses the same identifiers. It did not before, and
+the result looked exactly like the assistant hallucinating.
+
+The fixture calendar carried an event titled *"Incident review — INC-4471"* while
+the ServiceNow mock served `INC0010001`, `INC0010002`, `INC0010003`. Asked about
+the meeting, the assistant read the calendar, cross-referenced the incident
+system, found nothing, and said so:
+
+```
+incidents.get_incident — no incident 'INC-4471' visible to you
+I could not find an incident with the key INC-4471 in your system.
+```
+
+**That was correct behaviour on inconsistent data.** The assistant invented
+nothing; two fixture sets written at different times had never been reconciled,
+and the seam was visible to anyone who followed a reference across systems.
+
+Fixtures now mirror the mock: same numbers, same titles, so the story holds
+whether you run fixtures only or the full estate.
+
+## Which numbers are real
+
+| Source | Identifiers | What they are |
+|---|---|---|
+| Gitea | `uione/payments-platform#1..4` | **Real records** in a real Gitea |
+| ServiceNow mock | `INC0010001..3` | Invented records, served by a real HTTP server in ServiceNow's own shape |
+| Claims mock | `CLM-0044xx` | Invented, Guidewire-shaped |
+| Fixtures | `PAY-1182`, `INC0010001`, `INV-88213` | Invented, in-process, for when nothing is configured |
+
+The identifiers are deliberately in each system's **native format** — Gitea's
+`owner/repo#n`, ServiceNow's `INC` plus seven digits — because a mock that
+invents a tidier scheme teaches a connector to parse something the vendor never
+sends.

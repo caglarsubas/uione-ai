@@ -90,7 +90,7 @@ async def test_retrieved_data_reaches_the_prompt(gateway: McpGateway) -> None:
     await BriefGenerator(model=model, gateway=gateway).generate(ALICE)
 
     prompt = model.prompts[0]
-    assert "INC-4471" in prompt
+    assert "INC0010001" in prompt
     assert "PAY-1182" in prompt
     assert "Q3 budget review" in prompt
 
@@ -153,7 +153,7 @@ async def test_model_outage_falls_back_to_raw_data(gateway: McpGateway) -> None:
     """The facts were the point; a brief without prose beats an error page."""
     brief = await BriefGenerator(model=DeadModel(), gateway=gateway).generate(ALICE)
 
-    assert "INC-4471" in brief.body
+    assert "INC0010001" in brief.body
     assert brief.error and "summary unavailable" in brief.error
 
 
@@ -217,7 +217,7 @@ async def test_cross_system_links_reach_the_prompt() -> None:
 
     prompt = model.prompts[0]
     assert "CONNECTIONS" in prompt
-    assert "INC-4471" in brief.connections
+    assert "INC0010001" in brief.connections
     assert "INV-88213" in brief.connections
 
 
@@ -237,6 +237,9 @@ async def test_connections_are_absent_when_nothing_links() -> None:
             incident_prefixes=frozenset(),
             reference_prefixes=frozenset(),
             extract_people=False,
+            # Explicit, because a ServiceNow record number is recognised by its
+            # shape rather than by an allowlist — "declare nothing" has to say so.
+            extract_servicenow=False,
         ),
     )
 
@@ -259,7 +262,7 @@ async def test_unavailable_sections_are_not_indexed() -> None:
 
     brief = await generator.generate(ALICE)
 
-    # INC-4471 still appears via the alert email, but the incidents section
+    # INC0010001 still appears via the alert email, but the incidents section
     # itself contributed nothing.
     assert "incidents" not in brief.provenance
 

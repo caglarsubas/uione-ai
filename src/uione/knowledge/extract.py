@@ -28,6 +28,24 @@ _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 # known-prefix allowlist instead, which is a far better filter than letter case.
 _GENERIC_KEY = re.compile(r"\b([A-Za-z][A-Za-z0-9]{1,9})-(\d{1,7})\b")
 
+#: ServiceNow record numbers, which carry no separator at all.
+#:
+#: `INC0010001`, `CHG0030004`, `RITM0010002` — three or four letters followed by
+#: exactly seven digits. The generic pattern above cannot see these, because it
+#: requires a hyphen, so before this existed an incident from ServiceNow linked
+#: to nothing: an email naming INC0010001 and the incident itself were two
+#: unrelated records as far as the work graph was concerned. That is the
+#: product's differentiating feature failing silently on its most likely
+#: enterprise source.
+#:
+#: Recognised without the prefix allowlist that the hyphenated pattern needs,
+#: because the shape is far more specific — seven digits exactly, no separator.
+#: `COVID-19` and `UTF-8` are the reason the generic pattern is gated; nothing in
+#: prose looks like this. Still switchable per deployment, because "every field
+#: is configuration" is the rule this module is built on and an operator who
+#: declares nothing should get nothing.
+_SERVICENOW_KEY = re.compile(r"\b(INC|CHG|PRB|REQ|RITM|TASK|SCTASK)(\d{7})\b", re.IGNORECASE)
+
 _MESSAGE_ID = re.compile(r"<[^<>@\s]+@[^<>@\s]+>")
 
 #: Common URL shapes that carry a record identifier.
@@ -36,6 +54,19 @@ _URL_KEYS = (
     re.compile(r"/issues/(\d+)"),  # GitLab/GitHub
     re.compile(r"[?&]sys_id=([0-9a-f]{32})"),  # ServiceNow
 )
+
+
+#: What each ServiceNow table means, so a record classifies correctly even in a
+#: deployment that never enumerated its prefixes.
+_SERVICENOW_KINDS = {
+    "INC": EntityKind.INCIDENT,
+    "PRB": EntityKind.INCIDENT,
+    "CHG": EntityKind.TICKET,
+    "REQ": EntityKind.TICKET,
+    "RITM": EntityKind.TICKET,
+    "TASK": EntityKind.TICKET,
+    "SCTASK": EntityKind.TICKET,
+}
 
 
 @dataclass
@@ -61,6 +92,15 @@ class ExtractionRules:
     allow_unknown_prefixes: bool = False
 
     extract_people: bool = True
+
+    #: Whether ServiceNow record numbers (`INC0010001`) count as identifiers.
+    #:
+    #: On by default and deliberately not gated on the prefix allowlist: the
+    #: shape is unambiguous, and a deployment that connected ServiceNow but
+    #: never thought to add "INC" to its prefix list would otherwise find that
+    #: incidents link to nothing — which is the work graph failing silently on
+    #: the source most likely to matter.
+    extract_servicenow: bool = True
 
     #: Domains whose addresses are colleagues rather than outside parties.
     internal_domains: frozenset[str] = frozenset()
@@ -91,6 +131,21 @@ def extract_entities(text: str, rules: ExtractionRules | None = None) -> set[Ent
         kind = rules.classify_prefix(prefix)
         if kind is not None:
             found.add(entity(kind, f"{prefix.upper()}-{number}"))
+
+    for match in _SERVICENOW_KEY.finditer(text):
+        prefix, number = match.group(1).upper(), match.group(2)
+        # Classified by prefix like everything else, but falling back to
+        # INCIDENT rather than dropping: a deployment that never listed "INC"
+        # still means an incident when ServiceNow says INC0010001, and silently
+        # discarding it is how the graph loses the record it most needs.
+        if not rules.extract_servicenow:
+            continue
+        # Classified by prefix like everything else, falling back to the table's
+        # own meaning rather than dropping: a deployment that never listed "INC"
+        # still means an incident when ServiceNow says INC0010001.
+        kind = rules.classify_prefix(prefix) or _SERVICENOW_KINDS.get(prefix)
+        if kind is not None:
+            found.add(entity(kind, f"{prefix}{number}"))
 
     for pattern in _URL_KEYS:
         for match in pattern.finditer(text):
