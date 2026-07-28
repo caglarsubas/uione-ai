@@ -95,6 +95,7 @@ class Ingestor:
         *,
         watermarks: Any | None = None,
         documents: Any | None = None,
+        embedder: Any | None = None,
     ) -> None:
         self._index = index
         self._sources: dict[str, IngestionSource] = {}
@@ -106,6 +107,10 @@ class Ingestor:
         # start disagreeing about who may read what.
         self._watermarks = watermarks
         self._documents = documents
+        # Embedding happens here because this is already the single write path
+        # into the index. A separate sweep would drift: documents would be
+        # searchable lexically and invisible semantically, with nothing saying so.
+        self._embedder = embedder
 
     async def restore(self) -> int:
         """Refill the index and the sync watermarks from storage.
@@ -176,6 +181,11 @@ class Ingestor:
             result.indexed += 1
         if self._documents is not None:
             await self._documents.save_all(staged)
+        if self._embedder is not None and staged:
+            # After indexing, never before: a document that failed to index must
+            # not acquire a vector, or search would rank something it cannot
+            # then return.
+            await self._embedder.sync(staged)
 
         completed = datetime.now(UTC)
         self._last_sync[source_name] = completed

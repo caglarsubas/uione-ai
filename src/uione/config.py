@@ -182,6 +182,11 @@ class Settings(BaseSettings):
     #: else's folder.
     documents_folder: str = "documents"
 
+    #: Semantic retrieval. On when an embedding model is configured; the
+    #: lexical index always runs, so switching this off narrows recall rather
+    #: than removing search.
+    embeddings_enabled: bool = True
+
     #: Whether an ingestion sweep runs at startup. Off by default: a first run
     #: over a large share should be a decision, not a surprise on boot.
     ingest_on_startup: bool = False

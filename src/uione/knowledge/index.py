@@ -267,6 +267,15 @@ class DocumentIndex:
         document = self._documents.get(document_id)
         return document.acl if document else None
 
+    def readable_ids(self, principal: Principal) -> set[str]:
+        """Ids this principal may read.
+
+        Exists so a *different* ranker — the vector index — can apply the same
+        filter-before-rank rule. Handing out ids rather than documents keeps the
+        content on this side of the boundary.
+        """
+        return set(self._readable(principal))
+
     def visible_count(self, principal: Principal) -> int:
         return len(self._readable(principal))
 

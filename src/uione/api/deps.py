@@ -58,9 +58,12 @@ from uione.identity import (
 )
 from uione.knowledge import (
     DocumentIndex,
+    Embedder,
     ExtractionRules,
+    HybridSearch,
     IngestionRefresher,
     Ingestor,
+    VectorIndex,
     build_knowledge_source,
     build_mail_ingestion,
 )
@@ -87,6 +90,7 @@ from uione.storage import (
     Database,
     DisclosureStore,
     DocumentStore,
+    EmbeddingStore,
     McpPinStore,
     MetricStore,
     PersistentAutonomyPolicy,
@@ -120,6 +124,8 @@ class Services:
     session_ttl: timedelta
     index: DocumentIndex
     ingestor: Ingestor
+    hybrid: HybridSearch | None
+    embedder: Embedder | None
     refresher: IngestionRefresher
     schedules: ScheduleStore
     disclosures: DisclosureStore
@@ -402,15 +408,38 @@ async def build_services() -> Services:
         principal_for=principal_for,
     )
 
+    # Built before retrieval because the embedder needs it: semantic search
+    # runs on the same local model plane as everything else, which is what keeps
+    # it available in an air-gapped install.
+    model = ModelPlaneClient()
+
     # Retrieval. The index is rebuilt from stored documents rather than stored
     # itself: postings are derived from the tokeniser, and an index persisted
     # across a tokeniser change would silently disagree with its own documents.
     index = DocumentIndex()
     documents = DocumentStore(database)
-    ingestor = Ingestor(index, watermarks=WatermarkStore(database), documents=documents)
+
+    hybrid = None
+    embedder = None
+    if settings.embeddings_enabled:
+        vectors = VectorIndex(model=settings.model_tier_embedding)
+        embedding_store = EmbeddingStore(database)
+        # Vectors from a previously configured model are dropped rather than
+        # left to accumulate invisibly.
+        await embedding_store.purge_other_models(settings.model_tier_embedding)
+        embedder = Embedder(model, vectors, store=embedding_store)
+        await embedder.load()
+        hybrid = HybridSearch(index, vectors, model=model, store=embedding_store)
+
+    ingestor = Ingestor(
+        index,
+        watermarks=WatermarkStore(database),
+        documents=documents,
+        embedder=embedder,
+    )
     build_ingestion(settings, ingestor)
     restored = await ingestor.restore()
-    await gateway.register(build_knowledge_source(index))
+    await gateway.register(build_knowledge_source(index, hybrid=hybrid))
     log.info("retrieval.ready", documents=restored, sources=ingestor.sources)
 
     if settings.ingest_on_startup and ingestor.sources:
@@ -426,7 +455,6 @@ async def build_services() -> Services:
 
     sessions = SessionStore(database, ttl=timedelta(minutes=settings.session_ttl_minutes))
 
-    model = ModelPlaneClient()
     router = TaskRouter()
     generator = BriefGenerator(
         model=model,
@@ -479,6 +507,8 @@ async def build_services() -> Services:
         scheduler=scheduler,
         index=index,
         ingestor=ingestor,
+        hybrid=hybrid,
+        embedder=embedder,
         refresher=refresher,
         schedules=schedules,
         disclosures=disclosures,

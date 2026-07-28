@@ -18,7 +18,9 @@ log = structlog.get_logger(__name__)
 MAX_RESULTS = 10
 
 
-def build_knowledge_source(index: DocumentIndex, *, name: str = "knowledge") -> InMemoryToolSource:
+def build_knowledge_source(
+    index: DocumentIndex, *, name: str = "knowledge", hybrid=None
+) -> InMemoryToolSource:
     source = InMemoryToolSource(name)
 
     # The in-memory tool source calls handlers with arguments only, so the
@@ -41,15 +43,29 @@ def build_knowledge_source(index: DocumentIndex, *, name: str = "knowledge") -> 
         except (TypeError, ValueError):
             limit = 5
 
-        hits = index.search(principal, query, limit=limit)
+        # Hybrid when this deployment has embeddings, lexical otherwise. The
+        # fallback is not an error path: a deployment with no embedding model
+        # still gets working search.
+        note = ""
+        if hybrid is not None:
+            result = await hybrid.search(principal, query, limit=limit)
+            hits, note = result.hits, result.note
+        else:
+            hits = index.search(principal, query, limit=limit)
+
         if not hits:
             # Identical wording whether nothing matched or nothing was permitted:
             # the difference is exactly what must not be observable.
-            return ToolResult.success(f"No documents matching {query!r}.", {"count": 0})
+            return ToolResult.success(
+                f"No documents matching {query!r}." + (f" ({note})" if note else ""),
+                {"count": 0, "semantic": not note},
+            )
 
         return ToolResult.success(
-            "\n".join(h.render() for h in hits),
-            {"count": len(hits), "top_score": hits[0].score},
+            "\n".join(h.render() for h in hits) + (f"\n({note})" if note else ""),
+            # `semantic` is a field rather than only a note, so a caller can tell
+            # a degraded search from a complete one without reading prose.
+            {"count": len(hits), "top_score": hits[0].score, "semantic": not note},
         )
 
     async def fetch(args: dict) -> ToolResult:
