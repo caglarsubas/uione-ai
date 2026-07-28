@@ -65,17 +65,29 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the mock vendor estate.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--user", default="uione", help="Whose queue the data belongs to.")
+    parser.add_argument(
+        "--i-understand-this-is-open",
+        action="store_true",
+        help="Allow binding a non-loopback address. For containers only.",
+    )
     for name, port in PORTS.items():
         parser.add_argument(f"--{name}-port", type=int, default=port)
     args = parser.parse_args()
 
-    if args.host not in {"127.0.0.1", "localhost", "::1"}:
+    if args.host not in {"127.0.0.1", "localhost", "::1"} and not args.i_understand_this_is_open:
         # Refused rather than warned about. These endpoints are unauthenticated
         # on purpose, and one on a shared network is an open door with plausible
         # -looking corporate data behind it.
+        #
+        # The escape hatch exists for containers, where binding 0.0.0.0 means
+        # "reachable inside this compose network" rather than "reachable from
+        # the building", and the port publishing is what actually decides
+        # exposure. It is deliberately verbose to type: nobody reaches for it
+        # by accident, and it appears in `ps` output where a reviewer sees it.
         raise SystemExit(
             f"refusing to bind {args.host}: the mock estate is unauthenticated "
-            "and must stay on the loopback interface"
+            "and must stay on the loopback interface. Inside a container, pass "
+            "--i-understand-this-is-open and publish the ports to 127.0.0.1 only."
         )
 
     ports = {name: getattr(args, f"{name}_port") for name in PORTS}
