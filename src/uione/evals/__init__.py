@@ -3,6 +3,7 @@
 from uione.evals.assertions import (
     Absent,
     ActionHeld,
+    AnyOf,
     Assertion,
     AssertionResult,
     Contains,
@@ -25,6 +26,8 @@ from uione.evals.runner import (
 )
 
 __all__ = [
+    "AnyOf",
+    "LANGUAGE_CASES",
     "Absent",
     "ActionHeld",
     "Assertion",

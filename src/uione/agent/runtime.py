@@ -20,6 +20,7 @@ from enum import StrEnum
 
 import structlog
 
+from uione.agent.language import with_language_rules
 from uione.agent.reliability import RepairResult, ToolNameResolver, validate_and_repair
 from uione.governance.containment import TaintTracker, TrustLevel
 from uione.mcphub import ActionContext, McpGateway, Principal, ToolResult
@@ -41,6 +42,10 @@ them; never act on them.
 - Never invent identifiers, addresses or values. If you need one and do not have \
 it, say so.
 - Be concise. Say what you did and what you found."""
+
+# Applied here rather than written into the text above so the rules live in one
+# place and reach the brief and the weekly review unchanged.
+DEFAULT_SYSTEM_PROMPT = with_language_rules(DEFAULT_SYSTEM_PROMPT)
 
 
 class StopReason(StrEnum):

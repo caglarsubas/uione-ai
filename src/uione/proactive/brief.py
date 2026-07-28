@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 
 import structlog
 
+from uione.agent.language import with_proactive_language
 from uione.governance.containment import TaintTracker, TrustLevel
 from uione.knowledge import EntityKind, ExtractionRules, GraphItem, WorkGraph, entity
 from uione.mcphub import McpGateway, Principal
@@ -160,12 +161,16 @@ class BriefGenerator:
         gateway: McpGateway,
         sources: tuple[BriefSource, ...] = DEFAULT_SOURCES,
         system_prompt: str = BRIEF_SYSTEM_PROMPT,
+        locale: str = "en",
         extraction_rules: ExtractionRules | None = None,
     ) -> None:
         self._model = model
         self._gateway = gateway
         self._sources = sources
-        self._system_prompt = system_prompt
+        # Resolved once at construction: a brief has no user message to match,
+        # so the language comes from the deployment's stated preference.
+        self._system_prompt = with_proactive_language(system_prompt, locale)
+        self._locale = locale
         self._extraction_rules = extraction_rules or ExtractionRules()
 
     def _build_graph(self, sections: list[SectionResult]) -> WorkGraph:

@@ -70,6 +70,32 @@ class Contains:
 
 
 @dataclass
+class AnyOf:
+    """At least one of these must hold.
+
+    For properties with several legitimate spellings — a Turkish reply can say
+    "e-postanız" or "okunmamış" or neither and still be Turkish. Asserting one
+    exact word would fail a correct answer, and asserting none would test
+    nothing; a small set of alternatives is the honest middle.
+    """
+
+    assertions: list[Assertion]
+    why: str = ""
+
+    @property
+    def label(self) -> str:
+        inner = " or ".join(a.label for a in self.assertions)
+        return f"any of: {inner}" + (f" ({self.why})" if self.why else "")
+
+    def check(self, output: EvalOutput) -> AssertionResult:
+        results = [a.check(output) for a in self.assertions]
+        passed = any(r.passed for r in results)
+        return AssertionResult(
+            passed, self.label, "" if passed else "none of the alternatives held"
+        )
+
+
+@dataclass
 class Absent:
     """Output must not mention this string."""
 
