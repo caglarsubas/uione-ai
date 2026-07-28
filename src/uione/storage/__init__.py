@@ -24,6 +24,7 @@ from uione.storage.repositories import (
 from uione.storage.state import (
     DisclosureStore,
     DocumentStore,
+    EmbeddingStore,
     McpPinStore,
     MetricStore,
     ScheduleStore,
@@ -39,6 +40,8 @@ __all__ = [
     "DisclosureStore",
     "DocumentRow",
     "DocumentStore",
+    "EmbeddingRow",
+    "EmbeddingStore",
     "MetricPointRow",
     "MetricStore",
     "McpPinRow",

@@ -307,3 +307,84 @@ than by this one. Both directions fail closed, which is the property that matter
 
 Embeddings and reranking (lexical BM25 today), and a real Confluence or
 SharePoint connector to validate the ACL mapping above against a live system.
+
+
+## Semantic retrieval, and the fusion that decides what wins
+
+BM25 finds documents that share words with the query. It cannot find the
+settlement runbook when somebody asks about *"batch payments not completing"* —
+and that is the query people actually type.
+
+Embeddings run on the same local model plane as everything else, which is what
+keeps semantic search available in an air-gapped install. Nothing leaves the
+building to make a vector.
+
+### Four properties
+
+**The permission invariant does not change.** Filter first, rank second. A vector
+search that ranks the whole corpus and then removes what the caller may not read
+leaks existence through result counts and through timing — the same leak the
+lexical index was built to avoid.
+
+**Ranks are fused, not scores.** A BM25 score and a cosine similarity live on
+different scales, and any weighted sum needs a normalisation that depends on the
+corpus. Reciprocal rank fusion needs only the ordering, so it cannot be
+miscalibrated.
+
+**Semantic search never takes search offline.** If the model plane is busy the
+query falls back to lexical results and sets `semantic: false`. An assistant
+whose search stops working because a GPU is busy is worse than one that
+occasionally misses a synonym.
+
+**Embeddings are stored; postings are not.** This looks inconsistent with the
+index, which rebuilds its postings at startup, and the difference is cost: a
+posting list is a tokeniser pass over text already in memory, an embedding is a
+GPU round trip per document. Vectors are keyed by content hash *and* model name,
+so an edited document or a changed model produces a miss rather than a
+confidently wrong vector. A permission change does not invalidate anything —
+ACLs change far more often than text.
+
+### The failure that showed up on the third query ever run
+
+Asked *"when can I take time off"*:
+
+| | ranking |
+|---|---|
+| BM25 | `refunds` 0.72, `runbook` 0.60 — matched the words *time* and *off*. The holiday policy shared no terms and scored **nothing**. |
+| Embedder | `holiday` 0.49, `vpn` 0.29, `runbook` 0.28, `refunds` 0.23 |
+| Plain RRF | `refunds`, `runbook`, `holiday` |
+
+The refund runbook appeared in *both* lists and won. The document that answered
+the question came third. **Two mediocre votes beat one excellent vote** — the
+known failure mode of naive rank fusion.
+
+The fix is not a weight pulled out of the air. It is an asymmetry that already
+exists between the two signals:
+
+* **A similarity floor on the semantic side.** Cosine is comparable across
+  queries for a fixed model — 0.2 means unrelated whatever was asked — so a
+  constant is defensible here. A BM25 score is relative to query length and
+  corpus statistics, so no constant would mean anything, and no floor is applied
+  there.
+* **A weight of 1.5 on semantic votes.** After the floor, a semantic vote means
+  "similar above a stated threshold". A lexical vote means only "shares a term",
+  with no relevance threshold at all. Weighting those equally is the arbitrary
+  choice, not weighting them differently.
+
+Measured against a real `embeddinggemma:300m` on a real file share:
+
+| Query | Lexical alone | Hybrid |
+|---|---|---|
+| `why do customers get charged twice` | *nothing* | `refunds.md` |
+| `when can I take time off` | `refunds`, `runbook` | `leave.md` |
+| `PAY-1182` | `settlement` | `settlement.md` |
+
+Exact identifier lookup still works, which matters because the work graph
+depends on ticket keys.
+
+### The scale this is honest about
+
+Similarity is brute force: every stored vector is compared with the query, which
+is linear in corpus size. That is fine for the tens of thousands of documents an
+on-premise department has. It is not an approximate-nearest-neighbour index and
+does not pretend to be — a deployment with millions of documents needs one.

@@ -25,9 +25,35 @@ from uione.knowledge.refresh import (
     RefreshStats,
     SourceHealth,
 )
+from uione.knowledge.semantic import (
+    BATCH_SIZE,
+    MIN_SIMILARITY,
+    RRF_K,
+    SEMANTIC_WEIGHT,
+    Embedder,
+    HybridResult,
+    HybridSearch,
+    SemanticHit,
+    VectorIndex,
+    content_hash,
+    cosine,
+    fuse,
+)
 from uione.knowledge.source import build_knowledge_source
 
 __all__ = [
+    "BATCH_SIZE",
+    "MIN_SIMILARITY",
+    "SEMANTIC_WEIGHT",
+    "RRF_K",
+    "Embedder",
+    "HybridResult",
+    "HybridSearch",
+    "SemanticHit",
+    "VectorIndex",
+    "content_hash",
+    "cosine",
+    "fuse",
     "STOPWORDS",
     "FLAT",
     "MAX_ANCESTRY",

@@ -246,3 +246,31 @@ class MetricPointRow(Base):
     day: Mapped[str] = mapped_column(String(10), primary_key=True)
     value: Mapped[float] = mapped_column(Float, default=0.0)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class EmbeddingRow(Base):
+    """A cached document vector.
+
+    Stored, unlike the inverted index's postings, and the difference is cost: a
+    posting list is a tokeniser pass over text already in memory, while this is
+    a round trip to a GPU per document. Re-embedding a corpus on every restart
+    would make restarts expensive enough that nobody restarts.
+
+    Keyed by document *and model*, and carrying the content hash, so a changed
+    document or a changed embedding model produces a miss rather than a
+    confidently wrong vector. Mixing embedding spaces yields similarities that
+    are arithmetic on unrelated numbers — plausible, ordered, meaningless.
+
+    The vector is JSON rather than a native array type: this has to work on
+    SQLite in an air-gapped install, and a pgvector dependency would make the
+    smallest deployment need the largest database.
+    """
+
+    __tablename__ = "embeddings"
+
+    document_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    model: Mapped[str] = mapped_column(String(128), primary_key=True)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    vector: Mapped[list] = mapped_column(JSON, default=list)
+    dims: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

@@ -36,6 +36,7 @@ from uione.storage.database import Database
 from uione.storage.models import (
     DisclosureRow,
     DocumentRow,
+    EmbeddingRow,
     McpPinRow,
     MetricPointRow,
     ScheduleRow,
@@ -388,3 +389,64 @@ class MetricStore:
     async def latest(self, principal_id: str) -> dict[str, float]:
         series = await self.history(principal_id, days=7)
         return {metric: points[-1].value for metric, points in series.items() if points}
+
+
+class EmbeddingStore:
+    """The vector cache. Expensive to produce, cheap to keep."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    async def save(self, document_id: str, vector: list[float], *, model: str, digest: str) -> None:
+        async with self._db.session() as session:
+            row = await session.get(EmbeddingRow, (document_id, model))
+            if row is None:
+                row = EmbeddingRow(document_id=document_id, model=model)
+                session.add(row)
+            row.content_hash = digest
+            row.vector = list(vector)
+            row.dims = len(vector)
+            row.updated_at = datetime.now(UTC)
+
+    async def load_into(self, vectors, *, model: str) -> int:
+        """Restore vectors made by this exact model, and no other."""
+        async with self._db.session() as session:
+            rows = list(
+                (
+                    await session.execute(select(EmbeddingRow).where(EmbeddingRow.model == model))
+                ).scalars()
+            )
+        for row in rows:
+            vectors.put(row.document_id, list(row.vector or []), digest=row.content_hash)
+        return len(rows)
+
+    async def delete(self, document_id: str) -> None:
+        async with self._db.session() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(EmbeddingRow).where(EmbeddingRow.document_id == document_id)
+                    )
+                ).scalars()
+            )
+            for row in rows:
+                await session.delete(row)
+
+    async def purge_other_models(self, model: str) -> int:
+        """Drop vectors from models this deployment no longer uses.
+
+        Called on startup rather than never: an operator who switches embedding
+        model would otherwise carry the old corpus's vectors forever, invisible
+        and consuming space nobody can account for.
+        """
+        async with self._db.session() as session:
+            rows = list(
+                (
+                    await session.execute(select(EmbeddingRow).where(EmbeddingRow.model != model))
+                ).scalars()
+            )
+            for row in rows:
+                await session.delete(row)
+        if rows:
+            log.info("storage.embeddings_purged", count=len(rows), keeping=model)
+        return len(rows)
