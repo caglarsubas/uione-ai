@@ -410,3 +410,5 @@ td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+.panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }

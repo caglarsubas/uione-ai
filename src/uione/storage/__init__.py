@@ -22,6 +22,7 @@ from uione.storage.repositories import (
     SqlAuditSink,
 )
 from uione.storage.state import (
+    ConversationStore,
     DisclosureStore,
     DocumentStore,
     EmbeddingStore,
@@ -40,6 +41,8 @@ __all__ = [
     "DisclosureRow",
     "DisclosureStore",
     "DocumentRow",
+    "ConversationRow",
+    "ConversationStore",
     "DocumentStore",
     "EmbeddingRow",
     "EmbeddingStore",

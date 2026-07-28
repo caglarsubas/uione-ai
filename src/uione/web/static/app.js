@@ -508,6 +508,17 @@ async function streamChat(message, { progress, answer }) {
 }
 
 $("#send").addEventListener("click", send);
+
+/* Starting again is a real action, not a screen wipe: the server forgets, so the
+   next turn genuinely has no history — including any taint the old conversation
+   was carrying. The audit log keeps everything that was said and done. */
+$("#new-conversation")?.addEventListener("click", async () => {
+  await api("/chat/new", { method: "POST" }).catch(() => {});
+  $("#thread").innerHTML = "";
+  resetScopes();
+  presence.clear();
+  presence.set("idle", "Ready");
+});
 $("#composer").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
 });

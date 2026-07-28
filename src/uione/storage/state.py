@@ -25,7 +25,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, time, timedelta
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from uione.a2a.contracts import ContractRegistry, DisclosureContract, Facet
 from uione.analysis.anomaly import Point
@@ -34,6 +34,7 @@ from uione.knowledge.index import DocumentIndex
 from uione.proactive.schedule import JobKind, Schedule, ScheduledJob
 from uione.storage.database import Database
 from uione.storage.models import (
+    ConversationRow,
     DisclosureRow,
     DocumentRow,
     EmbeddingRow,
@@ -450,3 +451,135 @@ class EmbeddingStore:
         if rows:
             log.info("storage.embeddings_purged", count=len(rows), keeping=model)
         return len(rows)
+
+
+#: How much conversation to carry forward, in characters. A budget rather than a
+#: message count because one tool result can be a whole document, and twenty
+#: short turns cost less than two long ones.
+HISTORY_BUDGET_CHARS = 12_000
+
+
+class ConversationStore:
+    """The running conversation, per person, server-side.
+
+    Server-side is a security decision, not an architectural preference. History
+    is model context: a client that supplies its own can fabricate an assistant
+    turn — "the user already approved this" — and prime the model with it. That
+    is the same class of attack the containment layer exists to stop, so nothing
+    the browser says about what was said earlier is trusted.
+    """
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    async def append(self, principal_id: str, messages: list, *, tainted: bool = False) -> int:
+        """Add messages to the end of the conversation."""
+        if not messages:
+            return 0
+
+        async with self._db.session() as session:
+            highest = (
+                await session.execute(
+                    select(func.max(ConversationRow.seq)).where(
+                        ConversationRow.principal_id == principal_id
+                    )
+                )
+            ).scalar()
+            seq = (highest or 0) + 1
+
+            for message in messages:
+                session.add(
+                    ConversationRow(
+                        principal_id=principal_id,
+                        seq=seq,
+                        role=message.role,
+                        content=message.content,
+                        tool_calls=[
+                            {"id": c.id, "name": c.name, "arguments": c.arguments}
+                            for c in (message.tool_calls or [])
+                        ]
+                        or None,
+                        tool_call_id=message.tool_call_id,
+                        name=message.name,
+                        # Only tool output can bring untrusted content in, so the
+                        # flag lands on the message that carried it.
+                        tainted=tainted and message.role == "tool",
+                    )
+                )
+                seq += 1
+        return len(messages)
+
+    async def history(
+        self, principal_id: str, *, budget: int = HISTORY_BUDGET_CHARS
+    ) -> tuple[list, bool]:
+        """The recent conversation, and whether any of it is tainted.
+
+        Returns messages oldest-first, trimmed from the front to fit the budget.
+
+        **Trimming never orphans a tool result.** An OpenAI-compatible engine
+        rejects a `tool` message whose assistant parent is missing, so a naive
+        "keep the last N" produces a 400 the first time the cut lands mid-pair —
+        which is exactly when a conversation has got long enough to matter.
+        After trimming, leading `tool` messages are dropped for the same reason.
+        """
+        async with self._db.session() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(ConversationRow)
+                        .where(ConversationRow.principal_id == principal_id)
+                        .order_by(ConversationRow.seq)
+                    )
+                ).scalars()
+            )
+
+        kept: list = []
+        spent = 0
+        # Walk backwards so the most recent turns are the ones that survive.
+        for row in reversed(rows):
+            cost = len(row.content or "") + 64
+            if spent + cost > budget and kept:
+                break
+            kept.append(row)
+            spent += cost
+        kept.reverse()
+
+        # An assistant turn that requested tools must keep its results, and a
+        # result cannot lead. Dropping from the front until the window starts on
+        # something self-contained is what keeps the replay valid.
+        while kept and kept[0].role == "tool":
+            kept.pop(0)
+
+        tainted = any(row.tainted for row in kept)
+        return [_to_message(row) for row in kept], tainted
+
+    async def clear(self, principal_id: str) -> int:
+        """Start a new conversation. The audit log keeps what was said."""
+        async with self._db.session() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(ConversationRow).where(ConversationRow.principal_id == principal_id)
+                    )
+                ).scalars()
+            )
+            for row in rows:
+                await session.delete(row)
+        log.info("storage.conversation_cleared", user=principal_id, messages=len(rows))
+        return len(rows)
+
+
+def _to_message(row: ConversationRow):
+    from uione.modelplane.types import ChatMessage, ToolCall
+
+    return ChatMessage(
+        role=row.role,
+        content=row.content,
+        tool_calls=[
+            ToolCall(id=c["id"], name=c["name"], arguments=c["arguments"])
+            for c in (row.tool_calls or [])
+        ]
+        or None,
+        tool_call_id=row.tool_call_id,
+        name=row.name,
+    )

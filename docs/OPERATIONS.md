@@ -75,6 +75,32 @@ know before they commit:
   endpoint — but nothing for Prometheus to scrape.
 
 
+## Conversations
+
+Chat history is stored **server-side**, per principal, in `conversation_messages`.
+
+That is a security decision rather than an architectural preference. History is
+model context: a client that supplies its own can fabricate an assistant turn —
+*"the user already approved sending this"* — and prime the model with it, which
+is the same class of attack the containment layer exists to stop. Nothing the
+browser says about what was said earlier is trusted.
+
+**Taint is a property of the conversation, not of one turn.** Replaying history
+puts the same untrusted text back into the context window, so a session that read
+a poisoned email on turn one is still carrying it on turn three. The only way out
+is `POST /chat/new`, which clears the history — the audit log keeps everything
+that was said and done.
+
+**Tool results are not replayed.** Only the prose of each turn is kept. Reading
+back "5 unread" from an hour ago as though it were current is worse than spending
+one more call to ask, and confident staleness is the failure mode this product is
+built to avoid everywhere else.
+
+History is trimmed to a character budget, oldest first, and the trim **never
+orphans a tool result** — an OpenAI-compatible engine rejects a `tool` message
+whose assistant parent is missing, so a naive "keep the last N" produces a 400
+the first time the cut lands mid-pair.
+
 ## Admission control
 
 ### The measurement that shaped it

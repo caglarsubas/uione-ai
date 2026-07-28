@@ -135,6 +135,7 @@ class AgentRuntime:
         max_steps: int = 6,
         task: TaskClass | None = None,
         correlation_id: str | None = None,
+        tainted: bool = False,
     ) -> AgentRun:
         tools = self._gateway.tool_definitions_for(principal)
         resolver = ToolNameResolver([t.name for t in tools])
@@ -146,7 +147,11 @@ class AgentRuntime:
             ChatMessage(role="user", content=user_message),
         ]
         turns: list[AgentTurn] = []
-        taint = TaintTracker()
+        # Seeded from the conversation, not fresh per run. Replaying history
+        # puts the same untrusted text back into the context window, so a
+        # session that read a poisoned email on turn one is still carrying it on
+        # turn three — and would otherwise report itself clean.
+        taint = TaintTracker(tainted=tainted)
         task = task or self._router.route("plan")
 
         for step in range(max_steps):
@@ -231,6 +236,7 @@ class AgentRuntime:
         max_steps: int = 6,
         task: TaskClass | None = None,
         correlation_id: str | None = None,
+        tainted: bool = False,
     ):
         """The same loop, as a stream of events.
 
@@ -263,7 +269,11 @@ class AgentRuntime:
             *(history or []),
             ChatMessage(role="user", content=user_message),
         ]
-        taint = TaintTracker()
+        # Seeded from the conversation, not fresh per run. Replaying history
+        # puts the same untrusted text back into the context window, so a
+        # session that read a poisoned email on turn one is still carrying it on
+        # turn three — and would otherwise report itself clean.
+        taint = TaintTracker(tainted=tainted)
         task = task or self._router.route("plan")
 
         for step in range(max_steps):
@@ -343,6 +353,12 @@ class AgentRuntime:
                         # more than "mail ✓", and it comes from the structured
                         # field rather than being counted out of prose.
                         "count": structured.get("count"),
+                        # Whether this result put untrusted content into the
+                        # context window. Emitted so the conversation store can
+                        # mark the turn: taint outlives the run, because the
+                        # history replayed on the next turn carries the same
+                        # text back in.
+                        "untrusted": taint.tainted,
                         "ok": invocation.ok,
                         # Surfaced rather than folded into `ok`: an action waiting
                         # for approval is not a failure, and a UI that shows it as
