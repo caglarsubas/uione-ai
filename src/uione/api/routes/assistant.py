@@ -8,7 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,7 @@ from uione.a2a import (
 from uione.api.deps import Services, default_schedule, get_principal, get_services
 from uione.config import get_settings
 from uione.mcphub import Principal
+from uione.modelplane import ChatMessage
 from uione.proactive import JobKind, Schedule, ScheduledJob
 
 log = structlog.get_logger(__name__)
@@ -132,7 +133,15 @@ async def chat(
     principal: Principal = Depends(get_principal),
     services: Services = Depends(get_services),
 ) -> ChatResponse:
-    run = await services.runtime.run(principal, request.message, max_steps=request.max_steps)
+    history, tainted = await services.conversations.history(principal.user_id)
+    run = await services.runtime.run(
+        principal,
+        request.message,
+        history=history,
+        max_steps=request.max_steps,
+        tainted=tainted,
+    )
+    await _remember(services, principal, request.message, run)
 
     calls = [
         ToolCallView(
@@ -189,17 +198,40 @@ async def chat_stream(
     nobody runs nginx there.
     """
 
+    history, tainted = await services.conversations.history(principal.user_id)
+
     async def events():
+        # Collected as the stream runs and written once at the end. Persisting
+        # per event would leave a half-turn behind if the client disconnects
+        # mid-answer, and a conversation containing a question with no answer
+        # replays as though the assistant fell silent.
+        turn: list[ChatMessage] = [ChatMessage(role="user", content=request.message)]
+        saw_untrusted = tainted
         try:
             async for kind, payload in services.runtime.stream(
-                principal, request.message, max_steps=request.max_steps
+                principal,
+                request.message,
+                history=history,
+                max_steps=request.max_steps,
+                tainted=tainted,
             ):
+                if kind == "done" and payload.get("final"):
+                    turn.append(ChatMessage(role="assistant", content=payload["final"]))
+                if kind == "tool_result" and payload.get("untrusted"):
+                    saw_untrusted = True
                 yield _sse(kind, payload)
         except Exception as exc:  # noqa: BLE001 — the client must learn it stopped
             # Without this the connection simply ends, and a half-written answer
             # is indistinguishable from a complete one.
             log.exception("chat.stream_failed", principal=principal.user_id)
             yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
+        finally:
+            # Even a failed turn is remembered, so "that didn't work, try again"
+            # has something to refer to. Only the prose is kept: tool results
+            # are re-fetched rather than replayed, because a stale count read
+            # back as current is worse than one more call.
+            if len(turn) > 1:
+                await services.conversations.append(principal.user_id, turn, tainted=saw_untrusted)
 
     return StreamingResponse(
         events(),
@@ -210,6 +242,31 @@ async def chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+async def _remember(services: Services, principal: Principal, message: str, run) -> None:
+    """Keep the prose of a turn, not its tool traffic.
+
+    Tool results are deliberately not stored. Replaying "5 unread" from an hour
+    ago as though it were current is worse than spending one more call to ask,
+    and it is exactly the kind of confident staleness this product is built to
+    avoid elsewhere.
+    """
+    turn = [ChatMessage(role="user", content=message)]
+    if run.final:
+        turn.append(ChatMessage(role="assistant", content=run.final))
+    if len(turn) > 1:
+        await services.conversations.append(principal.user_id, turn, tainted=run.taint.tainted)
+
+
+@router.post("/chat/new", status_code=204)
+async def new_conversation(
+    principal: Principal = Depends(get_principal),
+    services: Services = Depends(get_services),
+) -> Response:
+    """Start again. The audit log keeps everything that was said and done."""
+    await services.conversations.clear(principal.user_id)
+    return Response(status_code=204)
 
 
 def _sse(kind: str, payload: dict) -> str:

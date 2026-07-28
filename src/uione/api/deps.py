@@ -87,6 +87,7 @@ from uione.proactive import (
     WeeklyReviewGenerator,
 )
 from uione.storage import (
+    ConversationStore,
     Database,
     DisclosureStore,
     DocumentStore,
@@ -132,6 +133,7 @@ class Services:
     disclosures: DisclosureStore
     metrics: MetricStore
     recorder: MetricRecorder
+    conversations: ConversationStore
     mcp: McpSupervisor
 
 
@@ -573,6 +575,7 @@ async def build_services() -> Services:
         disclosures=disclosures,
         metrics=metrics,
         recorder=recorder,
+        conversations=ConversationStore(database),
         mcp=mcp,
     )
 

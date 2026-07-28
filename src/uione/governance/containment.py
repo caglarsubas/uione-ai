@@ -98,9 +98,12 @@ def quarantine(content: str, *, source: str, trust: TrustLevel = TrustLevel.UNTR
 class TaintTracker:
     """Tracks whether untrusted content has entered a session.
 
-    Taint is monotonic within a run: once an attacker's text has been in the
-    context window, the model's later output may be influenced by it, and no
-    amount of subsequent trusted content undoes that.
+    Taint is monotonic within a *conversation*, not merely within a run. Once an
+    attacker's text has been in the context window the model's later output may
+    be influenced by it, and no amount of subsequent trusted content undoes
+    that — and because history is replayed into later turns, the same text is
+    literally back in context. A tracker constructed for turn three of a tainted
+    conversation is therefore seeded tainted rather than clean.
     """
 
     tainted: bool = False

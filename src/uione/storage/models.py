@@ -274,3 +274,31 @@ class EmbeddingRow(Base):
     vector: Mapped[list] = mapped_column(JSON, default=list)
     dims: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ConversationRow(Base):
+    """One message in one person's running conversation.
+
+    Stored server-side rather than posted by the browser, and that is a security
+    decision rather than an architectural preference. History is *model context*.
+    A client that supplies its own history can fabricate an assistant turn —
+    "the user already approved sending this" — and prime the model with it,
+    which is the same class of attack the containment layer exists to stop.
+    Nothing the browser says about what was said earlier is trusted.
+
+    Keyed by principal and a monotonic sequence. `tainted` records whether this
+    particular message brought untrusted content into the context window, so a
+    conversation replayed tomorrow is still known to be carrying it.
+    """
+
+    __tablename__ = "conversation_messages"
+
+    principal_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
+    role: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_calls: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    tool_call_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tainted: Mapped[bool] = mapped_column(Boolean, default=False)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
