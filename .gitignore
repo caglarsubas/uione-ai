@@ -34,3 +34,4 @@ uione.db
 
 # Provisioned demo credentials. Generated per machine, never shared.
 estate/generated.env
+.gstack/

@@ -128,31 +128,38 @@ const SCOPE_LABELS = {
 };
 
 const presence = {
-  set(state, text, detail) {
+  set(state, text) {
     const node = $("#presence");
     if (!node) return;
     node.dataset.state = state;
     if (text !== undefined) $("#presence-state").textContent = text;
-    if (detail !== undefined) $("#presence-detail").textContent = detail;
   },
 
-  /* Called on every token. The class is removed after a short pause, so the
-     mouth keeps moving while text flows and stops within a fraction of a
-     second of it stopping — rather than running for a fixed duration and
-     lying about the tail. */
-  token() {
-    const node = $("#presence");
-    if (!node) return;
-    node.classList.add("talking");
-    clearTimeout(this._quiet);
-    this._quiet = setTimeout(() => node.classList.remove("talking"), 260);
+  /* The tape is the presence. Each line is an actual call, written when it
+     starts and completed when its result arrives — so it cannot claim work that
+     did not happen, and when the model stalls the tape stalls with it. */
+  start(name) {
+    const tape = $("#tape");
+    if (!tape) return;
+    const line = el("div", "running");
+    line.dataset.call = name;
+    line.textContent = name;
+    tape.append(line);
+    tape.scrollTop = tape.scrollHeight;
   },
 
-  /* The mouth stops the moment the turn does, rather than running out its
-     260ms timer after the answer has finished. */
-  quiet() {
-    clearTimeout(this._quiet);
-    $("#presence")?.classList.remove("talking");
+  finish(name, suffix) {
+    const line = [...($("#tape")?.children ?? [])]
+      .reverse()
+      .find((n) => n.dataset.call === name && n.classList.contains("running"));
+    if (!line) return;
+    line.classList.remove("running");
+    line.textContent = `${name} → ${suffix}`;
+  },
+
+  clear() {
+    const tape = $("#tape");
+    if (tape) tape.innerHTML = "";
   },
 };
 
@@ -226,6 +233,25 @@ function renderMarkdown(text) {
       // arithmetic instead of becoming italics around a 3.
       .replace(/(^|[\s(])\*(\S|\S[^*\n]*\S)\*/g, "$1<em>$2</em>")
       .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+      // Identifiers are typed objects, not emphasised words. This is the atom
+      // of the design system (see DESIGN.md): the screen is roughly 70%
+      // identifiers, and rendering INC0010002 as bold prose makes it
+      // typographically identical to an emphasised English word.
+      //
+      // Runs after the bold pass, and the lookbehind deliberately permits `>`
+      // so `**INC0010002**` — already `<strong>INC0010002</strong>` by now —
+      // still gets chipped. That is the common case, because models bold
+      // identifiers, and whether one is chipped must not depend on the model's
+      // formatting. Safe because escaping ran first, so the only angle brackets
+      // present are ones this function inserted.
+      //
+      // Scoped to shapes that are unambiguously keys: INC-4471, INC0010001,
+      // PAY-1182, CLM-004401, owner/repo#12. Bare numbers (4471, 2300), times
+      // (14:00) and dates (2026-07-28) are left alone.
+      .replace(
+        /(?<![\w-])((?:[A-Z]{2,6}-?\d{3,10})|(?:[a-z0-9][\w.-]*\/[\w.-]+#\d+))(?![\w-])/g,
+        '<span class="id">$1</span>',
+      )
       .replace(/^\s*[-*]\s+/gm, "• ")
       .replace(/^---+$/gm, "")
   );
@@ -339,7 +365,8 @@ async function send() {
   pending.append(progress, answer);
   progress.append(el("div", "step", "thinking…"));
   resetScopes();
-  presence.set("thinking", "Thinking", "Working out what to look at.");
+  presence.clear();
+  presence.set("thinking", "Thinking");
 
   try {
     await streamChat(message, { progress, answer });
@@ -349,7 +376,7 @@ async function send() {
     // than replacing it: a partial answer the reader knows is partial is more
     // use than an error that discards it.
     answer.append(notice("danger", "The reply stopped early.", String(err)));
-    presence.set("error", "Stopped", "The reply ended before it finished.");
+    presence.set("error", "Stopped");
   } finally {
     $("#send").disabled = false;
     input.focus();
@@ -407,7 +434,7 @@ async function streamChat(message, { progress, answer }) {
 
       if (kind === "step") {
         progress.firstChild.textContent = payload.step === 1 ? "thinking…" : `step ${payload.step}`;
-        if (!answerText) presence.set("thinking", "Thinking", `Step ${payload.step}.`);
+        if (!answerText) presence.set("thinking", "Thinking");
       } else if (kind === "tool") {
         const line = el("div", "step");
         line.append(el("span", "tool-name", payload.name), el("span", null, " …"));
@@ -416,11 +443,8 @@ async function streamChat(message, { progress, answer }) {
 
         const tile = scopeTile(payload.server);
         if (tile) tile.dataset.state = "active";
-        presence.set(
-          "working",
-          "Reading",
-          `${SCOPE_LABELS[payload.server] || payload.server} — ${payload.name}`,
-        );
+        presence.set("working", "Working");
+        presence.start(payload.name);
       } else if (kind === "tool_result") {
         const line = [...progress.children].reverse().find((n) => n.dataset.tool === payload.name);
         const status = payload.held
@@ -439,38 +463,39 @@ async function streamChat(message, { progress, answer }) {
             tile.querySelector(".scope-count").textContent = String(payload.count);
           }
         }
-        if (payload.held) {
-          presence.set("held", "Waiting on you", "An action needs your approval.");
-        }
+        // The tape records what the call actually returned: a count when the
+        // tool reported one, HELD when it needs a signature, the failure
+        // otherwise. Never a summary of intent.
+        presence.finish(
+          payload.name,
+          payload.held
+            ? "HELD"
+            : !payload.ok
+              ? "FAILED"
+              : typeof payload.count === "number"
+                ? String(payload.count)
+                : "ok",
+        );
+        if (payload.held) presence.set("held", "Waiting on you");
       } else if (kind === "token") {
         // The raw text is kept and re-rendered, because markdown cannot be
         // formatted one fragment at a time — `**bo` is not bold yet.
         answerText += payload.text;
         renderAnswer(answer, answerText);
         if ($("#presence").dataset.state !== "speaking") {
-          presence.set("speaking", "Answering", "");
+          presence.set("speaking", "Answering");
         }
-        presence.token();
       } else if (kind === "done") {
         finished = true;
         progress.firstChild.textContent = payload.reason === "completed" ? "" : payload.reason;
         if (!answerText) renderAnswer(answer, payload.final || "(no reply)");
-        presence.quiet();
         const held = document.querySelectorAll('.scope[data-state="held"]').length;
-        presence.set(
-          held ? "held" : "idle",
-          held ? "Waiting on you" : "Ready",
-          held ? "Approve it under Approvals." : touchedSummary(),
-        );
+        presence.set(held ? "held" : "idle", held ? "Waiting on you" : "Ready");
       } else if (kind === "error") {
         // `busy` is not a failure: the engine is working and fully committed,
         // and "try again" is different advice from "something went wrong".
         const busy = payload.reason === "busy";
-        presence.set(
-          busy ? "busy" : "error",
-          busy ? "Busy" : "Stopped",
-          busy ? "The model plane is at capacity. Try again in a moment." : payload.message,
-        );
+        presence.set(busy ? "busy" : "error", busy ? "Busy" : "Stopped");
         throw new Error(payload.message);
       }
     }
