@@ -8,6 +8,7 @@ set of typed errors the agent runtime can reason about.
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 from typing import Any
 
@@ -141,6 +142,36 @@ class ModelPlaneClient:
         assert last_exc is not None
         raise last_exc
 
+    async def _stream_post(self, path: str, payload: dict[str, Any]):
+        """Yield parsed SSE data frames from the engine.
+
+        **Not retried, unlike `_post`.** A retry means starting the answer over,
+        and by the time a stream fails the caller has already shown the user
+        half a sentence. Replacing it with a different half-sentence is worse
+        than saying the connection dropped.
+        """
+        url = f"{self._settings.model_plane_url}{path}"
+        async with self._client.stream(
+            "POST", url, json=payload, headers=self._headers
+        ) as response:
+            if response.is_error:
+                body = (await response.aread()).decode(errors="replace")[:500]
+                raise ModelPlaneError(f"{path} returned {response.status_code}: {body}")
+
+            async for line in response.aiter_lines():
+                if not line.startswith("data:"):
+                    # Comments and blank lines. SSE uses ":" prefixed lines as
+                    # keep-alives, which arrive from engines under load.
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    return
+                try:
+                    yield json.loads(data)
+                except ValueError:
+                    # One malformed frame is not worth ending an answer over.
+                    log.warning("modelplane.bad_stream_frame", frame=data[:120])
+
     def _resolve_model(self, task: TaskClass | None, model: str | None) -> str:
         if model:
             return model
@@ -194,6 +225,82 @@ class ModelPlaneClient:
             total_tokens=completion.usage.total_tokens,
         )
         return completion
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        task: TaskClass | None = None,
+        model: str | None = None,
+        temperature: float = 0.2,
+        tools: list[ToolDefinition] | None = None,
+    ):
+        """Stream one completion, yielding text as it arrives.
+
+        Yields ``("content", text)`` for each fragment and finally
+        ``("completion", Completion)`` with the whole thing assembled — tool
+        calls included, which is why this is not simply a generator of strings.
+
+        **Tool call arguments are accumulated, not assumed whole.** Ollama sends
+        a tool call in a single delta with complete arguments. vLLM and llama.cpp
+        fragment the argument JSON across deltas, keyed by index. Code written
+        against Ollama's behaviour parses `{"lim` as JSON and fails on the
+        engine a customer actually runs — and this product targets all three.
+        """
+        resolved = self._resolve_model(task, model)
+        payload: dict[str, Any] = {
+            "model": resolved,
+            "messages": [m.to_wire() for m in messages],
+            "temperature": temperature,
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = [t.to_wire() for t in tools]
+
+        content: list[str] = []
+        # index -> {"id", "name", "arguments"}. Keyed by the delta's own index
+        # because a model may interleave fragments of two calls.
+        partial: dict[int, dict[str, str]] = {}
+        finish_reason = ""
+
+        async for frame in self._stream_post("/chat/completions", payload):
+            for choice in frame.get("choices") or []:
+                finish_reason = choice.get("finish_reason") or finish_reason
+                delta = choice.get("delta") or {}
+
+                if text := delta.get("content"):
+                    content.append(text)
+                    yield ("content", text)
+
+                for fragment in delta.get("tool_calls") or []:
+                    index = int(fragment.get("index", 0))
+                    call = partial.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                    if identifier := fragment.get("id"):
+                        call["id"] = identifier
+                    function = fragment.get("function") or {}
+                    if name := function.get("name"):
+                        call["name"] = name
+                    if arguments := function.get("arguments"):
+                        # Concatenated, never replaced: this is the fragment.
+                        call["arguments"] += arguments
+
+        yield (
+            "completion",
+            Completion(
+                content="".join(content),
+                model=resolved,
+                finish_reason=finish_reason,
+                tool_calls=[
+                    ToolCall(
+                        id=call["id"] or f"call_{index}",
+                        name=call["name"],
+                        arguments=call["arguments"] or "{}",
+                    )
+                    for index, call in sorted(partial.items())
+                    if call["name"]
+                ],
+            ),
+        )
 
     async def embed(self, texts: list[str], *, model: str | None = None) -> list[list[float]]:
         payload = {"model": model or self._settings.model_tier_embedding, "input": texts}

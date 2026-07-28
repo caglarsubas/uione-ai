@@ -205,44 +205,122 @@ async function send() {
   const pending = addMessage("assistant", "");
   pending.innerHTML = '<span class="spinner"></span>';
 
+  // Progress lives above the answer, so the answer stays readable as it grows.
+  const progress = el("div", "tool-trace");
+  const answer = el("div", "answer");
+  pending.innerHTML = "";
+  pending.append(progress, answer);
+  progress.append(el("div", "step", "thinking…"));
+
   try {
-    const reply = await api("/chat", {
-      method: "POST",
-      body: JSON.stringify({ message }),
-    });
-    pending.textContent = reply.reply || "(no reply)";
-
-    if (reply.tool_calls.length) {
-      const trace = el("div", "tool-trace");
-      for (const call of reply.tool_calls) {
-        const line = el("div");
-        line.append(el("span", "tool-name", call.tool || "unknown"));
-        line.append(
-          el(
-            "span",
-            null,
-            call.held ? " — held for your approval" : call.ok ? " ✓" : ` — ${call.detail || "failed"}`,
-          ),
-        );
-        if (call.repairs?.length) {
-          line.append(el("div", "repair", `repaired: ${call.repairs.join("; ")}`));
-        }
-        trace.append(line);
-      }
-      pending.append(trace);
-    }
-
-    if (reply.notice) {
-      pending.append(notice(reply.pending_approvals.length ? "warn" : "info", reply.notice));
-    }
+    await streamChat(message, { progress, answer });
     await loadApprovals();
   } catch (err) {
-    pending.textContent = "";
-    pending.append(notice("danger", "That request failed.", String(err)));
+    // A stream that dies leaves whatever arrived in place and says so, rather
+    // than replacing it: a partial answer the reader knows is partial is more
+    // use than an error that discards it.
+    answer.append(notice("danger", "The reply stopped early.", String(err)));
   } finally {
     $("#send").disabled = false;
     input.focus();
   }
+}
+
+/**
+ * The smallest markdown that makes an answer readable: bold, inline code, and
+ * bullets. Deliberately no links and no images.
+ *
+ * Escaping happens first and unconditionally. An answer can contain text the
+ * model read out of an email, and an email is written by anyone — so treating
+ * any of it as markup is how a stranger gets to put HTML in this page.
+ *
+ * Links are omitted for a second reason: a rendered image or link in an
+ * on-premise product is an outbound request to whatever host the text names,
+ * which is exactly the phone-home an air-gapped deployment is meant not to do.
+ */
+function renderAnswer(node, text) {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+  node.innerHTML = escaped
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/^[-*] (.+)$/gm, "<span class=\"bullet\">• $1</span>");
+}
+
+/** Consume the SSE stream, rendering progress and tokens as they arrive. */
+async function streamChat(message, { progress, answer }) {
+  // headers(), not a hand-written Content-Type: in dev auth mode this carries
+  // the identity headers, and hardcoding the content type meant the stream
+  // 401'd while every other call in the page worked.
+  const res = await fetch("/chat/stream", {
+    method: "POST",
+    headers: headers(),
+    credentials: "same-origin",
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let answerText = "";
+  let finished = false;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE frames are separated by a blank line. Anything after the last one is
+    // an incomplete frame and stays in the buffer — a chunk boundary can land
+    // mid-frame, and parsing half a frame drops a token silently.
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+
+    for (const frame of frames) {
+      const kind = frame.match(/^event: (.+)$/m)?.[1];
+      const raw = frame.match(/^data: (.+)$/m)?.[1];
+      if (!kind || !raw) continue;
+      const payload = JSON.parse(raw);
+
+      if (kind === "step") {
+        progress.firstChild.textContent = payload.step === 1 ? "thinking…" : `step ${payload.step}`;
+      } else if (kind === "tool") {
+        const line = el("div", "step");
+        line.append(el("span", "tool-name", payload.name), el("span", null, " …"));
+        line.dataset.tool = payload.name;
+        progress.append(line);
+      } else if (kind === "tool_result") {
+        const line = [...progress.children].reverse().find((n) => n.dataset.tool === payload.name);
+        const status = payload.held
+          ? " — held for your approval"
+          : payload.ok
+            ? " ✓"
+            : ` — ${payload.error || "failed"}`;
+        if (line) line.lastChild.textContent = status;
+      } else if (kind === "token") {
+        // The raw text is kept and re-rendered, because markdown cannot be
+        // formatted one fragment at a time — `**bo` is not bold yet.
+        answerText += payload.text;
+        renderAnswer(answer, answerText);
+      } else if (kind === "done") {
+        finished = true;
+        progress.firstChild.textContent = payload.reason === "completed" ? "" : payload.reason;
+        if (!answerText) renderAnswer(answer, payload.final || "(no reply)");
+      } else if (kind === "error") {
+        throw new Error(payload.message);
+      }
+    }
+  }
+
+  // `done` is the completion signal. Without this check a dropped connection
+  // produces a half-answer that looks finished, and the reader has no way to
+  // tell — which is worse than an error.
+  if (!finished) throw new Error("the connection closed before the reply finished");
 }
 
 $("#send").addEventListener("click", send);
