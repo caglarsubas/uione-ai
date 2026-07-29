@@ -107,3 +107,58 @@ alongside the tier-D mocks, seeds them with a plausible working day, and points
 the product at them. The assistant then reads real issues over real HTTP from a
 real ticket system, and real claims from a mock one — and the difference is
 recorded rather than blurred.
+
+
+## WhatsApp — the one that breaks the tier system
+
+It does not fit A, B, C or D, and the reason is worth its own section.
+
+### There is no personal-account API, at any tier
+
+Libraries that claim otherwise (`Baileys`, `whatsapp-web.js`) reverse-engineer
+WhatsApp Web. They violate Meta's terms and Meta bans numbers for using them.
+"Connect your own WhatsApp" is not a cheaper path to the same place; it is a
+different, prohibited thing that costs somebody their personal number.
+
+**This repo connects to the Business Cloud API only.** A number registered to it
+can no longer be used with the consumer app, which is why a business uses a
+dedicated one.
+
+### It contradicts the product's own premise, deliberately
+
+Every other connector here can run inside the building. WhatsApp cannot: every
+message routes through Meta's servers. A deployment that enables it accepts a
+cloud dependency and an egress path its security team has to sign off, and there
+is no fallback — Meta sunset the On-Premises API in 2025.
+
+That is a stated decision rather than an accident. The reason to accept it: in
+Turkey, Brazil and India, insurers and banks receive real customer traffic on
+WhatsApp, and a claims desk that ignores it is ignoring its busiest channel.
+That is precisely the ops-heavy regulated buyer this product targets.
+
+### It is the first channel that pushes
+
+Every other connector polls — it asks the mailbox what is unread. WhatsApp offers
+**no endpoint to list messages**. Meta POSTs to a webhook, so the product now has
+an inbox of its own, and if a webhook is not stored the message is gone: Meta
+retries for a while and then stops, and there is nothing to re-poll.
+
+### The signature check is the security model
+
+Everywhere else, untrusted content arrives because *we* fetched it with the
+user's credentials. Here anyone on the internet can POST, and what they send is
+stored and read into the model's context window. **An unverified webhook is a
+stranger with write access to the prompt.**
+
+So an unconfigured `UIONE_WHATSAPP_APP_SECRET` makes the endpoint return 503
+rather than accept anything, and the HMAC is computed over the **raw** body —
+re-serialising the parsed JSON changes the bytes and the signature never matches,
+which looks like Meta sending bad signatures rather than like our own mistake.
+
+### The 24-hour window
+
+Meta permits a free-form reply only within 24 hours of the customer's last
+message; outside it, only a pre-approved template. The connector checks *before*
+sending, because a rejected send means the customer never heard back and nobody
+finds out until they ask again. It also means the assistant cannot open a
+conversation with an arbitrary number — no inbound message, no window, no send.

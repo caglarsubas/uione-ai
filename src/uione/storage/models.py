@@ -302,3 +302,31 @@ class ConversationRow(Base):
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tainted: Mapped[bool] = mapped_column(Boolean, default=False)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class InboundMessageRow(Base):
+    """A message pushed to us by a channel that has no read API.
+
+    Every other connector polls: it asks the mailbox or the tracker what is
+    there. WhatsApp cannot be asked — Meta's Cloud API delivers messages to a
+    webhook and offers no endpoint to list them. So the webhook writes here and
+    the tool reads here, which makes this the only connector whose inbox we own.
+
+    That ownership has a consequence worth stating: if this row is not written,
+    the message is gone. Meta retries a failing webhook for a while and then
+    stops, and there is nothing to re-poll afterwards.
+    """
+
+    __tablename__ = "inbound_messages"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    """The channel's own message id, so a redelivered webhook is not a duplicate."""
+
+    channel: Mapped[str] = mapped_column(String(32), index=True)
+    principal_id: Mapped[str] = mapped_column(String(255), index=True)
+    sender: Mapped[str] = mapped_column(String(64))
+    sender_name: Mapped[str] = mapped_column(String(255), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    kind: Mapped[str] = mapped_column(String(32), default="text")
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    read: Mapped[bool] = mapped_column(Boolean, default=False)

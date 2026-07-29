@@ -44,6 +44,7 @@ from uione.connectors.mail import (
     build_mail_source,
     register_mail_undo,
 )
+from uione.connectors.messaging import WhatsAppBusiness, build_whatsapp_source, whatsapp_config
 from uione.connectors.tasks import GiteaTasks, build_gitea_source, gitea_config
 from uione.governance import EgressPolicy, Governor
 from uione.identity import (
@@ -92,6 +93,7 @@ from uione.storage import (
     DisclosureStore,
     DocumentStore,
     EmbeddingStore,
+    InboundStore,
     McpPinStore,
     MetricStore,
     PersistentAutonomyPolicy,
@@ -134,6 +136,7 @@ class Services:
     metrics: MetricStore
     recorder: MetricRecorder
     conversations: ConversationStore
+    inbound: InboundStore
     mcp: McpSupervisor
 
 
@@ -161,6 +164,7 @@ def default_policy() -> ToolPolicy:
                         "bi.*",
                         "chat.*",
                         "documents.*",
+                        "whatsapp.*",
                     }
                 ),
                 max_risk=RiskClass.READ,
@@ -173,6 +177,9 @@ def default_policy() -> ToolPolicy:
             Grant(role="analyst", tools=frozenset({"incidents.update_incident"})),
             Grant(role="analyst", tools=frozenset({"claims.add_note"})),
             Grant(role="analyst", tools=frozenset({"chat.send_message"})),
+            # Named individually and EXTERNAL_FACING, so it is held for approval
+            # and the egress policy sees the recipient.
+            Grant(role="analyst", tools=frozenset({"whatsapp.send_message"})),
             Grant(role="analyst", tools=frozenset({"documents.write_document"})),
             # Named individually like every other write. It is EXTERNAL_FACING,
             # so the egress policy still checks every attendee's domain before
@@ -190,7 +197,7 @@ def default_policy() -> ToolPolicy:
     )
 
 
-def build_connectors(settings: Settings) -> list:
+def build_connectors(settings: Settings, inbound=None) -> list:
     """Assemble the connector estate for this deployment.
 
     Mail is real when an IMAP host is configured and a fixture otherwise, so a
@@ -295,6 +302,26 @@ def build_connectors(settings: Settings) -> list:
             )
         )
         log.info("connectors.chat_backend", backend="mattermost", url=settings.mattermost_url)
+
+    if settings.whatsapp_configured:
+        # Its inbox is ours, because Meta offers no way to ask what arrived —
+        # the webhook writes and this reads.
+        sources.append(
+            build_whatsapp_source(
+                WhatsAppBusiness(
+                    whatsapp_config(
+                        settings.whatsapp_phone_number_id,
+                        settings.whatsapp_access_token,
+                        base_url=settings.whatsapp_base_url,
+                    ),
+                    inbound=inbound,
+                    owner=settings.whatsapp_owner,
+                ),
+                inbound=inbound,
+                owner=settings.whatsapp_owner,
+            )
+        )
+        log.info("connectors.whatsapp", number=settings.whatsapp_phone_number_id)
 
     if settings.grafana_configured:
         sources.append(
@@ -419,6 +446,7 @@ async def build_services() -> Services:
 
     database = Database(settings)
     await prepare_database(database, settings)
+    inbound = InboundStore(database)
     audit_sink = SqlAuditSink(database)
 
     # Autonomy is read on every mutating call, so its records are cached in
@@ -440,7 +468,7 @@ async def build_services() -> Services:
         audit=AuditLog(FanOutAuditSink(audit_sink, StructlogAuditSink())),
         governor=governor,
     )
-    for source in build_connectors(settings):
+    for source in build_connectors(settings, inbound):
         await gateway.register(source)
     register_mail_undo(governor.journal)
 
@@ -576,6 +604,7 @@ async def build_services() -> Services:
         metrics=metrics,
         recorder=recorder,
         conversations=ConversationStore(database),
+        inbound=inbound,
         mcp=mcp,
     )
 
