@@ -32,12 +32,16 @@ from uione.vendormocks.gitea import build_gitea_mock, seed_gitea
 from uione.vendormocks.grafana import build_grafana_mock, seed_grafana
 from uione.vendormocks.mattermost import build_mattermost_mock, seed_mattermost
 from uione.vendormocks.servicenow import build_servicenow_mock, seed_servicenow
+from uione.vendormocks.whatsapp import build_whatsapp_mock, inbound_payload, sign
 
 __all__ = [
     "build_claims_mock",
     "build_gitea_mock",
     "build_grafana_mock",
     "build_mattermost_mock",
+    "build_whatsapp_mock",
+    "inbound_payload",
+    "sign",
     "build_servicenow_mock",
     "seed_claims",
     "seed_gitea",

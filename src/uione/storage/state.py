@@ -38,6 +38,7 @@ from uione.storage.models import (
     DisclosureRow,
     DocumentRow,
     EmbeddingRow,
+    InboundMessageRow,
     McpPinRow,
     MetricPointRow,
     ScheduleRow,
@@ -583,3 +584,99 @@ def _to_message(row: ConversationRow):
         tool_call_id=row.tool_call_id,
         name=row.name,
     )
+
+
+class InboundStore:
+    """The inbox for channels that push rather than answer questions."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    async def record(
+        self,
+        *,
+        message_id: str,
+        channel: str,
+        principal_id: str,
+        sender: str,
+        body: str,
+        sender_name: str = "",
+        kind: str = "text",
+        at: datetime | None = None,
+    ) -> bool:
+        """Store one inbound message. Returns False if it was already here.
+
+        Meta redelivers a webhook it believes failed, including ones that
+        actually succeeded and lost the acknowledgement. Keying on the channel's
+        own message id makes a redelivery a no-op instead of a second copy of
+        the same message in somebody's morning brief.
+        """
+        async with self._db.session() as session:
+            if await session.get(InboundMessageRow, message_id):
+                return False
+            session.add(
+                InboundMessageRow(
+                    id=message_id,
+                    channel=channel,
+                    principal_id=principal_id,
+                    sender=sender,
+                    sender_name=sender_name,
+                    body=body,
+                    kind=kind,
+                    at=at or datetime.now(UTC),
+                )
+            )
+        return True
+
+    async def unread(
+        self, principal_id: str, *, channel: str = "", limit: int = 20
+    ) -> list[InboundMessageRow]:
+        async with self._db.session() as session:
+            query = (
+                select(InboundMessageRow)
+                .where(InboundMessageRow.principal_id == principal_id)
+                .where(InboundMessageRow.read.is_(False))
+                .order_by(InboundMessageRow.at.desc())
+                .limit(limit)
+            )
+            if channel:
+                query = query.where(InboundMessageRow.channel == channel)
+            rows = list((await session.execute(query)).scalars())
+        rows.reverse()
+        return rows
+
+    async def mark_read(self, message_ids: list[str]) -> int:
+        if not message_ids:
+            return 0
+        async with self._db.session() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(InboundMessageRow).where(InboundMessageRow.id.in_(message_ids))
+                    )
+                ).scalars()
+            )
+            for row in rows:
+                row.read = True
+        return len(rows)
+
+    async def last_inbound_at(self, principal_id: str, sender: str) -> datetime | None:
+        """When this person last wrote to us.
+
+        Not a convenience: WhatsApp only permits a free-form reply within 24
+        hours of the customer's last message. Outside that window Meta rejects
+        anything but a pre-approved template, so the connector has to know.
+        """
+        async with self._db.session() as session:
+            row = (
+                await session.execute(
+                    select(InboundMessageRow)
+                    .where(InboundMessageRow.principal_id == principal_id)
+                    .where(InboundMessageRow.sender == sender)
+                    .order_by(InboundMessageRow.at.desc())
+                    .limit(1)
+                )
+            ).scalar()
+        if row is None:
+            return None
+        return row.at.replace(tzinfo=UTC) if row.at.tzinfo is None else row.at

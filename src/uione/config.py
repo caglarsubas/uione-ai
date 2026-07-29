@@ -195,6 +195,29 @@ class Settings(BaseSettings):
     def mattermost_configured(self) -> bool:
         return bool(self.mattermost_url and self.mattermost_token)
 
+    # --- WhatsApp Business (Meta Cloud API) ---
+    #: A cloud dependency, deliberately. WhatsApp routes every message through
+    #: Meta, so a deployment enabling this accepts an egress path its security
+    #: team must sign off — and there is no self-hosted alternative since Meta
+    #: sunset the On-Premises API. See docs/VENDOR_ACCESS.md.
+    whatsapp_phone_number_id: str = ""
+    whatsapp_access_token: str = ""
+    #: Echoed back during Meta's subscription handshake.
+    whatsapp_verify_token: str = ""
+    #: Signs every inbound webhook. Without it the endpoint refuses to serve,
+    #: because an unverified webhook is a stranger writing into the model's
+    #: context window.
+    whatsapp_app_secret: str = ""
+    #: Whose inbox inbound messages land in. A shared business number belongs to
+    #: a desk rather than a person, so this is configuration.
+    whatsapp_owner: str = ""
+    #: Overridable so the mock can stand in for graph.facebook.com.
+    whatsapp_base_url: str = "https://graph.facebook.com"
+
+    @property
+    def whatsapp_configured(self) -> bool:
+        return bool(self.whatsapp_phone_number_id and self.whatsapp_access_token)
+
     # --- MCP servers ---
     #: The third-party MCP servers this deployment connects to, as a JSON list.
     #: See docs/MCP.md. A malformed value fails startup rather than booting with

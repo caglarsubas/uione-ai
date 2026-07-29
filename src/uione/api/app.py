@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from uione import __version__
 from uione.api import deps
-from uione.api.routes import assistant, auth, health
+from uione.api.routes import assistant, auth, health, webhooks
 from uione.config import get_settings
 from uione.web import STATIC_DIR
 
@@ -43,6 +43,8 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(health.router, tags=["health"])
+    # Inbound push. The only surface the outside world initiates.
+    app.include_router(webhooks.router)
     app.include_router(assistant.router, tags=["assistant"])
     app.include_router(auth.router)
 
