@@ -44,6 +44,14 @@ class AuditOutcome(StrEnum):
     FAILED = "failed"
     """Reached the connector, which errored."""
 
+    UNCONFIRMED = "unconfirmed"
+    """Executed, and reading it back does not show the effect it claimed.
+
+    Distinct from ``FAILED`` on purpose. The call succeeded — something may well
+    have changed — so an auditor asking "what did this assistant actually do"
+    must not see these filed alongside calls that never took effect.
+    """
+
 
 class AuditRecord(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -57,6 +65,23 @@ class AuditRecord(BaseModel):
     duration_ms: float = 0.0
     detail: str | None = None
     correlation_id: str | None = None
+
+    verification: str | None = None
+    """Read-after-write verdict, when one was reached. See F2.6.
+
+    A string rather than the enum so a record deserialised from an older store,
+    or from a deployment with verification off, stays readable.
+    """
+
+    @property
+    def verified(self) -> bool:
+        """The north-star metric counts these, and only these.
+
+        Deliberately not "did not report a problem": an action with no registered
+        read-back is unverified, and counting it as verified would make the
+        headline number grow by adding tools nobody checked.
+        """
+        return self.verification == "confirmed"
 
     @property
     def mutating_and_succeeded(self) -> bool:
@@ -118,6 +143,7 @@ class StructlogAuditSink:
             duration_ms=round(record.duration_ms, 2),
             detail=record.detail,
             correlation_id=record.correlation_id,
+            verification=record.verification,
         )
 
 
@@ -159,6 +185,7 @@ class AuditLog:
         duration_ms: float = 0.0,
         detail: str | None = None,
         correlation_id: str | None = None,
+        verification: str | None = None,
     ) -> AuditRecord:
         record = AuditRecord(
             principal_id=principal.user_id,
@@ -171,6 +198,7 @@ class AuditLog:
             duration_ms=duration_ms,
             detail=detail,
             correlation_id=correlation_id,
+            verification=verification,
         )
         await self._sink.write(record)
         return record

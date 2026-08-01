@@ -44,6 +44,7 @@ from uione.mcphub.types import (
     RiskClass,
     ToolResult,
     ToolSpec,
+    VerificationPlan,
 )
 
 __all__ = [
@@ -83,5 +84,6 @@ __all__ = [
     "ToolResult",
     "ToolSource",
     "ToolSpec",
+    "VerificationPlan",
     "classify_risk",
 ]

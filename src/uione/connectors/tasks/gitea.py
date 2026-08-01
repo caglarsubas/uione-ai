@@ -33,7 +33,7 @@ from typing import Any
 import structlog
 
 from uione.connectors.http import Auth, VendorClient, VendorConfig, VendorError
-from uione.mcphub import InMemoryToolSource, RiskClass, ToolResult
+from uione.mcphub import InMemoryToolSource, RiskClass, ToolResult, VerificationPlan
 
 log = structlog.get_logger(__name__)
 
@@ -323,3 +323,44 @@ def build_gitea_source(
         risk=RiskClass.IRREVERSIBLE,
     )
     return source
+
+
+def register_gitea_verification(verifier) -> None:
+    """Teach the verifier how to read Gitea's writes back (F2.6).
+
+    Only ``update_issue`` is covered, and the reason the other two are not is
+    worth stating rather than leaving as an omission.
+
+    ``comment_on_issue`` could be checked by re-reading the issue and looking for
+    the body, but the read tool returns only the last ten comments — on a busy
+    issue a comment that landed correctly would read back as missing, and a
+    verifier that reports false contradictions on healthy writes is worse than no
+    verifier. It needs a comment id from the write, which means threading one
+    through the tool result.
+
+    The state check is exact: Gitea answers a state change with the updated
+    issue, and this deliberately ignores that response and asks the server again.
+    Trusting the write's own answer would verify nothing — it is the same claim,
+    made twice.
+    """
+
+    def plan_for_update(arguments: dict, _result: ToolResult) -> VerificationPlan | None:
+        reference = str(arguments.get("issue", ""))
+        expected = str(arguments.get("state", "")).strip().lower()
+        if expected not in {"open", "closed"}:
+            return None
+        try:
+            parse_ref(reference)
+        except ValueError:
+            # Unparseable here means the write itself would have refused, so
+            # there is nothing to read back.
+            return None
+
+        return VerificationPlan(
+            tool="tasks.get_issue",
+            arguments={"issue": reference},
+            expect=lambda result: (result.structured or {}).get("state") == expected,
+            describes=f"{reference} is {expected}",
+        )
+
+    verifier.register("tasks.update_issue", plan_for_update)

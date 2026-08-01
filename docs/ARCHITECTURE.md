@@ -70,7 +70,7 @@ Two rules carry most of the safety weight:
 | Tool output → model context | Untrusted. Never interpreted as instructions (gap G2). |
 | External message content (email, chat) | Quarantined as data; carries a taint flag through the context. |
 | Model output → tool call | Schema-validated and repaired before execution; never executed raw. |
-| Any write → source system | Risk-classified, approval-gated, journaled for undo, verified by read-after-write. |
+| Any write → source system | Risk-classified, approval-gated, journaled for undo, and read back where the connector registered a check — see [VERIFICATION.md](VERIFICATION.md) for which writes those are. |
 
 ## 5. Persistence
 
