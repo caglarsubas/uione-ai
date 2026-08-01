@@ -71,9 +71,59 @@ know before they commit:
 * **No high availability.** The scheduler assumes it is the only one running;
   two replicas would both generate briefs. `UIONE_SCHEDULER_ENABLED=false` on
   the extra replicas is the workaround, not a design.
-* **No metrics endpoint.** Structured logs, an audit table, and the health
-  endpoint — but nothing for Prometheus to scrape.
+*(The metrics endpoint was on this list. It is now [Metrics](#metrics), below —
+though tracing is still missing: there is no OTel span from UI to connector, so
+"why was this brief slow" is still answered by reading logs.)*
 
+
+## Metrics
+
+```bash
+UIONE_METRICS_TOKEN=$(openssl rand -hex 32)
+```
+
+```bash
+curl -sH "Authorization: Bearer $UIONE_METRICS_TOKEN" http://127.0.0.1:8000/metrics
+```
+
+**Unset means no endpoint, and the response is 404 rather than 401.** These
+series describe an organisation's operational profile — how big its approval
+backlog is, how often its writes fail to confirm, how much GPU it burns — and a
+deployment that never enabled metrics should not advertise that the endpoint is
+there to be attacked.
+
+### What is published
+
+| Metric | Type | Why an operator wants it |
+|---|---|---|
+| `uione_tool_calls_total{server,tool,risk,outcome}` | counter | Every call, by how it ended. `outcome="denied"` climbing means a policy is wrong; `held_for_approval` climbing means the autonomy ladder is not learning. |
+| `uione_tool_call_duration_seconds{server}` | summary | Which connector got slow. |
+| `uione_mutating_actions_total` | counter | Writes that executed. |
+| `uione_verified_actions_total` | counter | Writes read back and **confirmed** — the north-star numerator. The ratio against the line above is the metric §9 of the strategy actually names. |
+| `uione_unconfirmed_actions_total` | counter | Writes the system contradicted. **Alert on any increase**: a system is accepting changes and discarding them. |
+| `uione_model_tokens_total{model,kind}` | counter | Where the GPU went. |
+| `uione_connector_up{server}` | gauge | 0 when the gateway has given up on a connector. |
+| `uione_model_plane_queued` | gauge | Requests waiting for a slot — the number worth paging on, per [admission control](#admission-control). |
+| `uione_approvals_pending` | gauge | The approval backlog. A rising line is a user who has stopped reviewing. |
+
+### Two deliberate omissions
+
+**Nothing is labelled by user.** Not a cardinality argument, though it is that
+too: a metrics endpoint labelled by user id is a surveillance surface, and the
+privacy stance (G15) promises admins aggregate-only analytics. "Which of my
+reports used the assistant least this week" must not be answerable from a
+Prometheus query. Per-user attribution lives in the audit log, which is
+access-controlled and exists for auditors rather than managers.
+
+**Durations are summaries, not histograms.** A histogram needs buckets chosen up
+front, and badly chosen buckets answer the wrong question confidently and cannot
+be re-cut afterwards. Count and sum give the average and the rate, which is what
+"is it getting slower" needs. Percentiles can come when someone has an SLO to
+hold the buckets to.
+
+The counters are fed from the audit stream rather than a second instrumentation
+path, so they cannot drift from the log they describe — they are the same events,
+added up.
 
 ## Conversations
 
