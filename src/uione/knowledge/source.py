@@ -1,9 +1,9 @@
 """Retrieval exposed as a governed MCP tool.
 
-The gateway already passes the calling principal, so the tool receives the
-identity it must filter by rather than inferring one. That is the whole
+The gateway passes the calling principal into the handler, so the tool receives
+the identity it must filter by rather than inferring one. That is the whole
 integration: there is no path from a tool call to the index that does not carry
-a principal.
+a principal, and no way to reach the index with somebody else's.
 """
 
 from __future__ import annotations
@@ -23,17 +23,7 @@ def build_knowledge_source(
 ) -> InMemoryToolSource:
     source = InMemoryToolSource(name)
 
-    # The in-memory tool source calls handlers with arguments only, so the
-    # principal is threaded through a closure the gateway rebinds per call.
-    # Keeping it explicit rather than implicit is deliberate: a retrieval tool
-    # that can be invoked without an identity is one that will be.
-    state: dict[str, Principal | None] = {"principal": None}
-
-    async def search(args: dict) -> ToolResult:
-        principal = state["principal"]
-        if principal is None:
-            return ToolResult.failure("retrieval requires an identified caller")
-
+    async def search(args: dict, principal: Principal) -> ToolResult:
         query = str(args.get("query", "")).strip()
         if not query:
             return ToolResult.failure("query is required")
@@ -68,11 +58,7 @@ def build_knowledge_source(
             {"count": len(hits), "top_score": hits[0].score, "semantic": not note},
         )
 
-    async def fetch(args: dict) -> ToolResult:
-        principal = state["principal"]
-        if principal is None:
-            return ToolResult.failure("retrieval requires an identified caller")
-
+    async def fetch(args: dict, principal: Principal) -> ToolResult:
         document_id = str(args.get("id", "")).strip()
         document = index.get(principal, document_id) if document_id else None
         if document is None:
@@ -99,6 +85,7 @@ def build_knowledge_source(
         # Documents are written by people, including outside parties whose
         # attachments and shared files end up indexed.
         returns_untrusted_content=True,
+        identified=True,
     )
     source.register(
         "fetch",
@@ -111,7 +98,6 @@ def build_knowledge_source(
         },
         risk=RiskClass.READ,
         returns_untrusted_content=True,
+        identified=True,
     )
-
-    source.bind_principal = state.__setitem__  # type: ignore[attr-defined]
     return source

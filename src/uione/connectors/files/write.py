@@ -46,7 +46,7 @@ import structlog
 
 from uione.connectors.files.acl import IdentityMap, derive_acl, escapes_root
 from uione.knowledge.documents import AccessControl
-from uione.mcphub import InMemoryToolSource, RiskClass, ToolResult
+from uione.mcphub import InMemoryToolSource, Principal, RiskClass, ToolResult
 
 log = structlog.get_logger(__name__)
 
@@ -248,17 +248,16 @@ def _with_front_matter(title: str, body: str, *, author: str) -> str:
 def build_document_source(writer: DocumentWriter, *, name: str = "documents") -> InMemoryToolSource:
     source = InMemoryToolSource(name)
 
-    state: dict[str, object] = {"principal": None}
-
-    async def write_document(args: dict) -> ToolResult:
+    async def write_document(args: dict, principal: Principal) -> ToolResult:
         title = str(args.get("title", "")).strip()
         body = str(args.get("body", ""))
 
         if not title:
             return ToolResult.failure("title is required")
 
-        principal = state.get("principal")
-        author = getattr(principal, "user_id", "") if principal else ""
+        # Stamped into the document's front matter, so `requested_by` names the
+        # person who asked rather than whoever the gateway most recently served.
+        author = principal.user_id
 
         try:
             written = writer.write(title, body, author=author)
@@ -304,12 +303,8 @@ def build_document_source(writer: DocumentWriter, *, name: str = "documents") ->
         # It creates a new file and refuses to overwrite, so deleting it
         # restores the world exactly. That is what reversible means here.
         risk=RiskClass.REVERSIBLE_WRITE,
+        identified=True,
     )
-
-    def bind_principal(key: str, value) -> None:
-        state[key] = value
-
-    source.bind_principal = bind_principal  # type: ignore[attr-defined]
     return source
 
 

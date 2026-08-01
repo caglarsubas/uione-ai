@@ -74,8 +74,20 @@ forbidden search and nonsense search return identical structure
 hr → intern → hr, same query: no bleed between callers
 ```
 
-The gateway binds the calling principal into the source before invoking it, so a
-retrieval tool cannot run without knowing who is asking.
+The gateway passes the calling principal to the handler as an argument, and a
+tool registered `identified=True` refuses to run without one. So a retrieval tool
+cannot execute without knowing who is asking.
+
+It is passed rather than *bound* for a reason worth recording. The first version
+wrote the principal into a dict the source closed over, immediately before
+invoking the handler. That is correct only while every handler reads the slot
+before its first `await` — which they all did, so it worked. But nothing enforced
+it, and a handler that read its caller after any suspension point would see
+whichever principal had most recently entered the gateway. With two users active
+at once that is Alice's search running under Bob's permissions: the precise
+failure this whole component exists to prevent, reachable by an edit that looks
+harmless. `tests/test_mcphub_gateway.py` now runs two callers concurrently
+through a handler shaped exactly that way.
 
 ## Ingestion, and deriving the ACL
 

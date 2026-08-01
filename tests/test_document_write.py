@@ -248,10 +248,11 @@ def test_a_group_readable_document_names_the_group(share: Path, identities: Iden
 
 async def test_the_tool_writes_and_says_who_can_read(writer: DocumentWriter) -> None:
     source = build_document_source(writer)
-    source.bind_principal("principal", ALICE)
 
     result = await source.call(
-        "write_document", {"title": "Postmortem PAY-1182", "body": "What happened."}
+        "write_document",
+        {"title": "Postmortem PAY-1182", "body": "What happened."},
+        principal=ALICE,
     )
 
     assert result.ok
@@ -272,7 +273,9 @@ async def test_unreadability_is_a_field_not_only_prose(
     writer = DocumentWriter(share, identities=IdentityMap(users={}, groups={}))
     source = build_document_source(writer)
 
-    result = await source.call("write_document", {"title": "Orphan", "body": "Body."})
+    result = await source.call(
+        "write_document", {"title": "Orphan", "body": "Body."}, principal=ALICE
+    )
 
     assert result.ok
     assert result.structured["readable_by_nobody"] is True
@@ -280,7 +283,9 @@ async def test_unreadability_is_a_field_not_only_prose(
 
 
 async def test_a_missing_title_is_refused(writer: DocumentWriter) -> None:
-    result = await build_document_source(writer).call("write_document", {"body": "Body."})
+    result = await build_document_source(writer).call(
+        "write_document", {"body": "Body."}, principal=ALICE
+    )
 
     assert not result.ok
     assert "title" in (result.error or "")
@@ -290,9 +295,11 @@ async def test_a_collision_is_reported_rather_than_silently_renamed(
     writer: DocumentWriter,
 ) -> None:
     source = build_document_source(writer)
-    await source.call("write_document", {"title": "Notes", "body": "First."})
+    await source.call("write_document", {"title": "Notes", "body": "First."}, principal=ALICE)
 
-    result = await source.call("write_document", {"title": "Notes", "body": "Second."})
+    result = await source.call(
+        "write_document", {"title": "Notes", "body": "Second."}, principal=ALICE
+    )
 
     assert not result.ok
     assert "already exists" in (result.error or "")
@@ -308,7 +315,9 @@ async def test_a_read_only_share_fails_as_a_result_not_a_traceback(
     source = build_document_source(DocumentWriter(root, identities=identities))
 
     try:
-        result = await source.call("write_document", {"title": "Nope", "body": "Body."})
+        result = await source.call(
+            "write_document", {"title": "Nope", "body": "Body."}, principal=ALICE
+        )
         assert not result.ok
         assert "could not write" in (result.error or "")
     finally:

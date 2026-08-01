@@ -3,6 +3,17 @@
 The gateway talks to this protocol, never to a transport. That keeps all the
 governance logic testable without spawning servers, and keeps MCP version churn
 contained to one file.
+
+**The caller travels with the call.** A tool that filters by identity — retrieval
+above all — is handed its principal as an argument, not left to read one from
+somewhere. The earlier design bound the principal into a dict the source closed
+over, immediately before invoking the handler, and that was safe only for as long
+as every handler happened to read the slot before its first ``await``. A handler
+that read it afterwards saw whichever principal had most recently entered the
+gateway, which under two concurrent users means running one person's search with
+the other's permissions. The invariant was real, unwritten, and one plausible
+edit away from a cross-user leak in the one component whose whole job is not
+leaking. Passing it removes the invariant instead of documenting it.
 """
 
 from __future__ import annotations
@@ -13,10 +24,16 @@ from typing import Any, Protocol
 
 import structlog
 
-from uione.mcphub.types import RiskClass, ToolResult, ToolSpec
+from uione.mcphub.types import Principal, RiskClass, ToolResult, ToolSpec
 from uione.security.injection import scan_for_injection
 
 log = structlog.get_logger(__name__)
+
+#: A handler that needs no identity: most of them.
+AnonymousHandler = Callable[[dict[str, Any]], Awaitable[ToolResult]]
+
+#: A handler that filters or attributes by caller, and says so at registration.
+IdentifiedHandler = Callable[[dict[str, Any], Principal], Awaitable[ToolResult]]
 
 
 class ToolSource(Protocol):
@@ -27,7 +44,9 @@ class ToolSource(Protocol):
 
     async def list_tools(self) -> list[ToolSpec]: ...
 
-    async def call(self, tool: str, arguments: dict[str, Any]) -> ToolResult: ...
+    async def call(
+        self, tool: str, arguments: dict[str, Any], *, principal: Principal | None = None
+    ) -> ToolResult: ...
 
 
 def classify_risk(
@@ -123,7 +142,8 @@ class InMemoryToolSource:
     def __init__(self, name: str) -> None:
         self._name = name
         self._specs: dict[str, ToolSpec] = {}
-        self._handlers: dict[str, Callable[[dict[str, Any]], Awaitable[ToolResult]]] = {}
+        self._handlers: dict[str, AnonymousHandler | IdentifiedHandler] = {}
+        self._identified: set[str] = set()
 
     @property
     def name(self) -> str:
@@ -132,13 +152,22 @@ class InMemoryToolSource:
     def register(
         self,
         tool: str,
-        handler: Callable[[dict[str, Any]], Awaitable[ToolResult]],
+        handler: AnonymousHandler | IdentifiedHandler,
         *,
         description: str = "",
         parameters: dict[str, Any] | None = None,
         risk: RiskClass = RiskClass.READ,
         returns_untrusted_content: bool = False,
+        identified: bool = False,
     ) -> ToolSpec:
+        """Register one tool.
+
+        ``identified=True`` means the handler takes ``(arguments, principal)``
+        and will not run without a caller. Declared at registration rather than
+        inferred from the signature: whether a tool filters by identity is a
+        security property, and reading it off a function's parameter list makes
+        renaming an argument a permissions change.
+        """
         spec = ToolSpec(
             server=self._name,
             tool=tool,
@@ -149,16 +178,32 @@ class InMemoryToolSource:
         )
         self._specs[tool] = spec
         self._handlers[tool] = handler
+        if identified:
+            self._identified.add(tool)
         return spec
 
     async def list_tools(self) -> list[ToolSpec]:
         return list(self._specs.values())
 
-    async def call(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+    async def call(
+        self, tool: str, arguments: dict[str, Any], *, principal: Principal | None = None
+    ) -> ToolResult:
         handler = self._handlers.get(tool)
         if handler is None:
             return ToolResult.failure(f"unknown tool {tool!r} on server {self._name!r}")
-        return await handler(arguments)
+
+        if tool not in self._identified:
+            return await handler(arguments)  # type: ignore[call-arg]
+
+        if principal is None:
+            # Fails closed, and loudly. An identity-filtered tool reached without
+            # an identity is a wiring bug, and the tempting alternative — treat it
+            # as an anonymous caller — is how a tool that exists to filter starts
+            # returning everything.
+            log.error("mcphub.identified_tool_without_caller", server=self._name, tool=tool)
+            return ToolResult.failure(f"{tool!r} requires an identified caller")
+
+        return await handler(arguments, principal)  # type: ignore[call-arg]
 
 
 class MCPToolSource:
@@ -222,7 +267,18 @@ class MCPToolSource:
             )
         return specs
 
-    async def call(self, tool: str, arguments: dict[str, Any]) -> ToolResult:
+    async def call(
+        self, tool: str, arguments: dict[str, Any], *, principal: Principal | None = None
+    ) -> ToolResult:
+        """Invoke a remote tool.
+
+        ``principal`` is accepted and deliberately not forwarded. A third-party
+        MCP server has no notion of our users, and the credential it authenticates
+        with is the one the operator configured for the whole server — so passing
+        a user id would say "this ran as Alice" when the server saw a service
+        account. Per-user credentials against remote servers are feature F3.2 and
+        need a credential store, not an extra argument.
+        """
         try:
             result = await self._session.call_tool(tool, arguments)
         except Exception as exc:  # noqa: BLE001 — transport and protocol errors alike

@@ -283,14 +283,12 @@ class McpGateway:
 
         source = self._sources[spec.server]
 
-        # Sources that filter by identity are handed the principal explicitly,
-        # so a retrieval tool cannot run without knowing who is asking.
-        if binder := getattr(source, "bind_principal", None):
-            binder("principal", principal)
-
         started = self._clock()
         try:
-            result = await source.call(spec.tool, arguments)
+            # The caller is an argument, not state the source carries between
+            # calls: two users are in flight at once and the second must not be
+            # able to overwrite the first's identity mid-call. See `source.py`.
+            result = await source.call(spec.tool, arguments, principal=principal)
         except Exception as exc:  # noqa: BLE001 — a connector must not crash the agent
             self._breaker.record_failure(spec.server)
             record = await self._audit.record(
