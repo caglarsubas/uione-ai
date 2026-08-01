@@ -496,14 +496,27 @@ With 15 connectors, something is always down. Every surface renders partial data
 
 ## 12. Open questions
 
-1. **Beachhead confirmation:** banking incident ops vs insurance claims ops as the *first* design partner — which do we have warmest access to?
-2. **Chat reality at targets:** are target customers on Mattermost/Rocket.Chat (on-prem) or Slack/Teams (cloud)? Determines Wave-1 chat connector.
-3. **BI reality at targets:** Superset/Grafana vs Power BI Report Server vs Qlik — pick the Wave-1 BI connector from actual installed base.
-4. **Hardware envelope:** what GPU budget can pilot customers actually stand up in 90 days? (Determines default model tier.)
-5. **A2A ambition at launch:** internal-only A2A at GA (recommended) vs demo-able external interop earlier for marketing?
-6. **Build vs adopt for the workspace shell:** fork/embed an existing open-source chat workspace to save 2 quarters, or own the surface fully from day one?
+Three of these were answered by building rather than deciding, and are recorded
+as closed so they stop being re-opened in review.
+
+1. **Beachhead confirmation:** banking incident ops vs insurance claims ops as the *first* design partner — which do we have warmest access to? **Still open, and now the binding one:** ServiceNow and Guidewire are both built against mocks we wrote, so whichever vertical goes first is where the first real-instance surprises land.
+2. ~~**Chat reality at targets**~~ — **closed: Mattermost.** Official embedded MCP server, permission-aware, fully on-prem; built and verified against a real 10.5 instance in Docker.
+3. ~~**BI reality at targets**~~ — **closed: Grafana.** Official `mcp-grafana`, alerts and datasource queries; built and verified against a real 11.6 instance. Superset remains the alternate if an installed base demands it.
+4. **Hardware envelope:** what GPU budget can pilot customers actually stand up in 90 days? (Determines default model tier.) Partially informed now: admission control measured that concurrency buys no throughput on a single 8B engine, so the sizing question is GPUs-in-parallel, not queue depth.
+5. **A2A ambition at launch:** internal-only A2A at GA (recommended) vs demo-able external interop earlier for marketing? Internal is built; external still needs the LF wire protocol.
+6. ~~**Build vs adopt for the workspace shell**~~ — **closed: own it.** ~1,270 lines of dependency-free HTML/CSS/JS, no build step, which is also what makes it auditable in an air gap.
 7. **Commercial model:** per-seat + connector packs + support tiers? Appliance bundle with a hardware partner?
 8. **Name check:** "UiOne" trademark/domain review in target markets.
+
+**One question this analysis did not anticipate**, now the largest open item in
+§5's Tier A: **how do per-user credentials reach the source systems (F3.2)?**
+The gap analysis treats permission-aware *retrieval* (G3) as the hard problem and
+it was built properly — but retrieval is only half. Every connector still
+authenticates with one service account per system, so the estate sees a single
+identity for every user and its own permissions cannot distinguish them. The
+options are user-supplied PATs, OIDC token exchange (ID-JAG, per Appendix B note
+5), or Kerberos delegation, and they differ enough in cost that it is a decision
+rather than an implementation detail.
 
 ---
 
@@ -585,4 +598,9 @@ Legend: 🟢 = official, self-hostable, on-prem-fit · 🟡 = community server o
 
 ---
 
-*This is a living document, grounded in market/model/ecosystem research current to 2026-07-26 (note: the 2026-07-28 MCP spec release and Kimi K3 weights land within days of writing — re-verify both). Next revision: split epics into issue-tracker-ready stories with acceptance criteria.*
+*This is a living document, grounded in market/model/ecosystem research current to 2026-07-26. Next revision: split epics into issue-tracker-ready stories with acceptance criteria.*
+
+**Re-verification due (noted 2026-08-02).** Two items this document flagged as landing "within days of writing" have landed, and one of them is now a commitment we are not keeping:
+
+- **The 2026-07-28 MCP spec shipped.** §3 commits to building against it "from day one" — stateless protocol, the Tasks extension, `Mcp-Method`/`Mcp-Name` routing headers. Our client advertises `2025-06-18` at newest (`mcphub/stdio.py`) and speaks stdio only; there is no streamable-HTTP transport. The commitment predates the implementation and should be either met or restated.
+- **Kimi K3 weights.** Appendix A's tier picks were written without them and have not been re-run against our own harness, which §A says is the only adoption gate that counts.
