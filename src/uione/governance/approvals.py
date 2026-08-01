@@ -117,6 +117,15 @@ class ApprovalStore:
     async def pending_for(self, principal: Principal) -> list[PendingAction]:
         return [a for a in self._actions.values() if a.principal_id == principal.user_id and a.open]
 
+    async def pending_count(self) -> int:
+        """Open actions across everyone.
+
+        Aggregate on purpose — it feeds a metrics gauge, and a per-user
+        breakdown there would be a surveillance surface (G15). A growing backlog
+        is an operational signal; whose backlog it is belongs to the audit log.
+        """
+        return sum(1 for a in self._actions.values() if a.open)
+
     async def decide(
         self, action_id: str, *, approved: bool, note: str | None = None
     ) -> PendingAction:

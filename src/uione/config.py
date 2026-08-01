@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     environment: str = "dev"
 
+    #: Bearer token Prometheus must present to scrape ``/metrics``.
+    #:
+    #: Empty disables the endpoint entirely, which is the default. The series
+    #: describe an organisation's operational profile — approval backlog, how
+    #: often writes fail to confirm, GPU burn — and serving that unauthenticated
+    #: because somebody forgot to set a variable is the wrong direction to fail.
+    metrics_token: str = ""
+
     # --- Model plane (llm_inference_engine, OpenAI-compatible) ---
     model_plane_url: str = Field(
         default="http://127.0.0.1:8080/v1",

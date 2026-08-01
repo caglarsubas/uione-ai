@@ -58,6 +58,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | A2A: assistant collaboration with disclosure contracts | `src/uione/a2a/` |
 | Morning Brief with provenance, links and honest degradation | `src/uione/proactive/` |
 | HTTP API: chat, brief, approval queue, transparency page | `src/uione/api/` |
+| Prometheus metrics, aggregate-only and token-gated | `src/uione/observability/` |
 
 Mail is a real IMAP/SMTP connector (configure `UIONE_MAIL_IMAP_HOST`, otherwise a
 fixture is used); calendar is real CalDAV (`UIONE_CALENDAR_URL`), read and write — it proposes meetings; tasks are real
@@ -111,7 +112,7 @@ is at `/system/health`.
 - [Retrieval](docs/RETRIEVAL.md) — permission-aware search, and why filtering must precede ranking.
 - [Evals](docs/EVALS.md) — including the language suite and what it measured. — the golden-task gate, current results, and the two failures it caught.
 - [Docker](docs/DOCKER.md) — `make up`, and what is deliberately not in the image.
-- [Operations](docs/OPERATIONS.md) — backup, restore, and what is still missing for production.
+- [Operations](docs/OPERATIONS.md) — backup, restore, metrics, and what is still missing for production.
 - [Migrations](docs/MIGRATIONS.md) — upgrading a database that has data worth keeping.
 - [Storage](docs/STORAGE.md) — what durability protects, and how it was verified across processes.
 - [Scheduler](docs/SCHEDULER.md) — how the brief becomes proactive, and the 10s → 2ms measurement.

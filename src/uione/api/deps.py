@@ -85,6 +85,7 @@ from uione.mcphub import (
     ToolPolicy,
 )
 from uione.modelplane import ModelPlaneClient, TaskRouter
+from uione.observability import MetricsAuditSink, MetricsRegistry
 from uione.proactive import (
     BriefGenerator,
     BriefStore,
@@ -143,6 +144,7 @@ class Services:
     conversations: ConversationStore
     inbound: InboundStore
     mcp: McpSupervisor
+    telemetry: MetricsRegistry
 
 
 _services: Services | None = None
@@ -473,9 +475,14 @@ async def build_services() -> Services:
     verifier = ActionVerifier()
     register_gitea_verification(verifier)
 
+    # Metrics are fed by the audit stream rather than a second instrumentation
+    # path, so the counters cannot drift from the log they describe.
+    telemetry = MetricsRegistry()
     gateway = McpGateway(
         policy=default_policy(),
-        audit=AuditLog(FanOutAuditSink(audit_sink, StructlogAuditSink())),
+        audit=AuditLog(
+            FanOutAuditSink(audit_sink, StructlogAuditSink(), MetricsAuditSink(telemetry))
+        ),
         governor=governor,
         verifier=verifier,
     )
@@ -617,6 +624,7 @@ async def build_services() -> Services:
         conversations=ConversationStore(database),
         inbound=inbound,
         mcp=mcp,
+        telemetry=telemetry,
     )
 
 

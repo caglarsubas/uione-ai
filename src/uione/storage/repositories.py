@@ -16,7 +16,7 @@ import uuid
 from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from uione.governance.approvals import ApprovalStatus, JournalEntry, PendingAction, render_preview
 from uione.governance.autonomy import AutonomyPolicy, TrackRecord
@@ -136,6 +136,20 @@ class SqlApprovalStore:
         )
         async with self._db.session() as session:
             return [_to_action(r) for r in (await session.execute(stmt)).scalars()]
+
+    async def pending_count(self) -> int:
+        """Open actions across everyone, counted in the database.
+
+        ``count()`` rather than loading the rows: a deployment with a thousand
+        held actions would otherwise deserialise all of them on every scrape.
+        """
+        stmt = (
+            select(func.count())
+            .select_from(PendingActionRow)
+            .where(PendingActionRow.status == str(ApprovalStatus.PENDING))
+        )
+        async with self._db.session() as session:
+            return int((await session.execute(stmt)).scalar_one())
 
     async def decide(
         self, action_id: str, *, approved: bool, note: str | None = None
