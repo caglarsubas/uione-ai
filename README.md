@@ -45,6 +45,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | File share connector with POSIX ACL derivation | `src/uione/connectors/files/` |
 | Agent loop with tool-call repair and name resolution | `src/uione/agent/` |
 | Graduated autonomy, approvals, undo journal, injection containment | `src/uione/governance/` |
+| Read-after-write: a write is read back and the verdict audited | `src/uione/governance/verification.py` |
 | Work graph: deterministic cross-system entity resolution | `src/uione/knowledge/` |
 | Permission-aware retrieval: ACL-filtered BM25 index | `src/uione/knowledge/` |
 | Ingestion with ACL derivation and permission re-sync | `src/uione/knowledge/` |
@@ -103,6 +104,7 @@ is at `/system/health`.
 - [Product strategy, backlog & gap analysis](docs/PRODUCT_STRATEGY_AND_BACKLOG.md) — thesis, reference architecture, 12-epic backlog, 18 strategic gaps, competitive matrix, roadmap.
 - [Architecture](docs/ARCHITECTURE.md) — component map, layering rules, trust boundaries.
 - [Security model](docs/SECURITY_MODEL.md) — prompt injection, the lethal trifecta, the seven layers, and the known limits.
+- [Read-after-write](docs/VERIFICATION.md) — why a vendor's `200` is not evidence, and which writes are checked.
 - [Model trials](docs/MODEL_TRIALS.md) — measured tool-calling reliability across eight open-weight models.
 - [Morning Brief](docs/MORNING_BRIEF.md) — implementation notes, observed output, and two honest defects.
 - [Work graph](docs/WORK_GRAPH.md) — deterministic cross-system entity resolution, and why v1 avoids fuzzy matching.

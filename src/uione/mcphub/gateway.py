@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 import structlog
 
@@ -99,6 +99,28 @@ class CircuitBreaker:
             log.warning("mcphub.circuit_opened", server=server, failures=count)
 
 
+class WriteVerifier(Protocol):
+    """Confirms that a mutating call actually changed the world (F2.6).
+
+    Declared here rather than imported from :mod:`uione.governance` for the same
+    reason as :class:`ActionGovernor`: the gateway owns the contract and
+    governance implements it, so the chokepoint carries no policy detail.
+
+    The implementation is handed a caller so its read-back goes back out through
+    this gateway — policy-checked and audited like any other call, rather than
+    reaching a connector by a private door.
+    """
+
+    async def verify(
+        self,
+        principal: Principal,
+        spec: ToolSpec,
+        arguments: dict,
+        result: ToolResult,
+        call: Any,
+    ) -> Any: ...
+
+
 class ToolNotFoundError(KeyError):
     pass
 
@@ -110,6 +132,8 @@ class GatewayCall:
     result: ToolResult
     audit: AuditRecord
     pending_action_id: str | None = None
+    verification: Any | None = None
+    """The read-after-write verdict, when the call was a verified mutation."""
 
     @property
     def ok(self) -> bool:
@@ -119,6 +143,15 @@ class GatewayCall:
     def held(self) -> bool:
         """True when the action was withheld pending human approval."""
         return self.audit.outcome is AuditOutcome.HELD_FOR_APPROVAL
+
+    @property
+    def confirmed(self) -> bool:
+        """Read back and found to have taken effect.
+
+        False for a call nobody could check, which is the point — see
+        :mod:`uione.governance.verification`.
+        """
+        return getattr(self.verification, "verdict", None) == "confirmed"
 
 
 class McpGateway:
@@ -130,6 +163,7 @@ class McpGateway:
         rate_limiter: RateLimiter | None = None,
         breaker: CircuitBreaker | None = None,
         governor: ActionGovernor | None = None,
+        verifier: WriteVerifier | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._sources: dict[str, ToolSource] = {}
@@ -139,6 +173,7 @@ class McpGateway:
         self._rate_limiter = rate_limiter or RateLimiter()
         self._breaker = breaker or CircuitBreaker()
         self._governor = governor
+        self._verifier = verifier
         self._clock = clock
 
     # -- registration ------------------------------------------------------
@@ -313,18 +348,48 @@ class McpGateway:
         if self._governor is not None:
             await self._governor.note_execution(principal, spec, arguments, result)
 
+        # Read-after-write (F2.6). Only successful mutations: a read needs no
+        # confirming, and a write that already reported failure needs a different
+        # question asked — see the known gap in `governance.verification`.
+        verification = None
+        if self._verifier is not None and spec.mutating and result.ok:
+            verification = await self._verifier.verify(
+                principal, spec, arguments, result, self._call_for_verification
+            )
+            if note := getattr(verification, "note", ""):
+                # Appended to the content the model reads. The write stands: it
+                # executed, and turning it into a failure here would invite a
+                # retry of something that already happened.
+                result = result.model_copy(update={"content": result.content + note})
+
+        outcome = AuditOutcome.ALLOWED if result.ok else AuditOutcome.FAILED
+        if verification is not None and getattr(verification, "contradicted", False):
+            outcome = AuditOutcome.UNCONFIRMED
+
         record = await self._audit.record(
             principal=principal,
             server=spec.server,
             tool=spec.qualified_name,
             risk=spec.risk,
-            outcome=AuditOutcome.ALLOWED if result.ok else AuditOutcome.FAILED,
+            outcome=outcome,
             arguments=arguments,
             duration_ms=duration_ms,
-            detail=result.error,
+            detail=result.error or (getattr(verification, "detail", None) or None),
             correlation_id=context.correlation_id or correlation_id,
+            verification=str(getattr(verification, "verdict", "")) or None,
         )
-        return GatewayCall(result, record)
+        return GatewayCall(result, record, verification=verification)
+
+    async def _call_for_verification(
+        self, principal: Principal, tool: str, arguments: dict
+    ) -> ToolResult:
+        """Run a verifier's read-back through the full gateway.
+
+        Recursion terminates because the read-back is a READ, and only mutating
+        calls are verified.
+        """
+        call = await self.call(principal, tool, arguments)
+        return call.result
 
     # -- health ------------------------------------------------------------
 

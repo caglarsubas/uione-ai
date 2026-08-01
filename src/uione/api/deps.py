@@ -45,8 +45,13 @@ from uione.connectors.mail import (
     register_mail_undo,
 )
 from uione.connectors.messaging import WhatsAppBusiness, build_whatsapp_source, whatsapp_config
-from uione.connectors.tasks import GiteaTasks, build_gitea_source, gitea_config
-from uione.governance import EgressPolicy, Governor
+from uione.connectors.tasks import (
+    GiteaTasks,
+    build_gitea_source,
+    gitea_config,
+    register_gitea_verification,
+)
+from uione.governance import ActionVerifier, EgressPolicy, Governor
 from uione.identity import (
     AuthError,
     AuthMode,
@@ -463,10 +468,16 @@ async def build_services() -> Services:
         # mail is refused rather than quietly allowed anywhere.
         egress=EgressPolicy(internal_domains=internal or frozenset({"corp.example"})),
     )
+    # Read-after-write (F2.6). Registered per connector, because only the
+    # connector knows which read answers "did that actually happen".
+    verifier = ActionVerifier()
+    register_gitea_verification(verifier)
+
     gateway = McpGateway(
         policy=default_policy(),
         audit=AuditLog(FanOutAuditSink(audit_sink, StructlogAuditSink())),
         governor=governor,
+        verifier=verifier,
     )
     for source in build_connectors(settings, inbound):
         await gateway.register(source)

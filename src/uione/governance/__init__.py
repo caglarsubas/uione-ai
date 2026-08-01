@@ -1,4 +1,4 @@
-"""Governance plane — graduated autonomy, approvals, undo, injection containment."""
+"""Governance plane — autonomy, approvals, undo, containment, read-after-write."""
 
 from uione.governance.approvals import (
     ActionJournal,
@@ -24,9 +24,15 @@ from uione.governance.containment import (
     scan_for_injection,
 )
 from uione.governance.plane import Governor
+from uione.governance.verification import (
+    ActionVerifier,
+    Verdict,
+    Verification,
+)
 
 __all__ = [
     "ActionJournal",
+    "ActionVerifier",
     "ApprovalStatus",
     "ApprovalStore",
     "AutonomyMode",
@@ -41,6 +47,8 @@ __all__ = [
     "TaintTracker",
     "TrackRecord",
     "TrustLevel",
+    "Verdict",
+    "Verification",
     "quarantine",
     "render_preview",
     "scan_for_injection",

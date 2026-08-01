@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
@@ -122,6 +124,33 @@ class ActionContext(BaseModel):
     """Set when executing a previously approved action, so it is not re-held."""
 
     model_config = {"frozen": True}
+
+
+@dataclass(frozen=True)
+class VerificationPlan:
+    """How to read one mutating call back and check it landed (F2.6).
+
+    Lives here rather than in :mod:`uione.governance` because connectors are what
+    construct it, and a connector importing the governance plane to describe its
+    own tools would invert the layering. Governance owns the *policy* — when to
+    verify, what a verdict means, what the model is told — and this is only the
+    vocabulary: a tool to call, arguments to call it with, and a question to ask
+    of the answer.
+
+    ``expect`` reads the *read-back* result, never the write's own response.
+    Comparing a write to what it said about itself verifies nothing: it is the
+    same claim, made twice.
+    """
+
+    tool: str
+    """The read tool to call back. A READ — anything else would mutate again."""
+
+    arguments: dict[str, Any]
+
+    expect: Callable[[ToolResult], bool]
+
+    describes: str = ""
+    """What was expected, in a user's words: "uione/payments#3 is closed"."""
 
 
 class ToolResult(BaseModel):

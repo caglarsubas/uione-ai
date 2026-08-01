@@ -6,6 +6,7 @@ from uione.connectors.tasks.gitea import (
     gitea_config,
     issue_key,
     parse_ref,
+    register_gitea_verification,
     render_issue,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "gitea_config",
     "issue_key",
     "parse_ref",
+    "register_gitea_verification",
     "render_issue",
 ]
