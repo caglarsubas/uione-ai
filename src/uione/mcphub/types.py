@@ -44,9 +44,16 @@ MUTATING_RISKS = frozenset(
 class Principal(BaseModel):
     """Who is acting.
 
-    The agent always acts *as a user*, never as a shared service account — that is
-    what makes source-system permissions meaningful and the audit trail
-    attributable (feature F3.2).
+    Every tool call carries one, which is what makes the audit trail attributable
+    and what retrieval filters by. It is passed to the handler, never stashed on
+    the source between calls — see :mod:`uione.mcphub.source`.
+
+    **This is not yet F3.2.** The principal governs what our side permits; the
+    credential the connector then authenticates with is still one service account
+    per system, configured by the operator. So the source system sees one identity
+    for everybody, and its own permissions cannot distinguish our users. Binding a
+    per-user credential here is the remaining half, and it needs a credential
+    store rather than another field.
     """
 
     user_id: str

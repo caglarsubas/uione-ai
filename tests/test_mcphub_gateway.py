@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from uione.mcphub import (
@@ -312,3 +314,58 @@ async def test_server_health_reports_degradation(sink: InMemoryAuditSink) -> Non
 
     assert gateway.server_health() == {"mail": "unavailable"}
     assert list(gateway.degraded_servers()) == ["mail"]
+
+
+# -- the caller travels with the call --------------------------------------
+
+
+async def test_concurrent_callers_do_not_see_each_other(sink: InMemoryAuditSink) -> None:
+    """Two users in flight at once, and the handler reads its caller *after* an
+    await.
+
+    This is the regression test for a real hazard in the previous design, where
+    the gateway wrote the principal into a dict the source closed over and then
+    invoked the handler. That was safe only while every handler read the slot
+    before its first suspension point — an invariant nothing enforced. A handler
+    shaped like this one saw whichever principal had most recently entered the
+    gateway, so Alice's retrieval ran with Bob's permissions.
+    """
+    source = InMemoryToolSource("mail")
+
+    async def whoami(_args: dict, principal: Principal) -> ToolResult:
+        await asyncio.sleep(0.05)
+        return ToolResult.success(principal.user_id)
+
+    source.register("whoami", whoami, risk=RiskClass.READ, identified=True)
+
+    policy = ToolPolicy(
+        [
+            Grant(role="analyst", tools=frozenset({"mail.*"}), max_risk=RiskClass.READ),
+            Grant(role="guest", tools=frozenset({"mail.*"}), max_risk=RiskClass.READ),
+        ]
+    )
+    gateway = await build_gateway(sink, source=source, policy=policy)
+
+    alice, bob = await asyncio.gather(
+        gateway.call(ALICE, "mail.whoami"),
+        gateway.call(BOB, "mail.whoami"),
+    )
+
+    assert (alice.result.content, bob.result.content) == ("alice", "bob")
+
+
+async def test_an_identified_tool_refuses_an_anonymous_call() -> None:
+    """Reached without a caller, an identity-filtered tool fails rather than
+    running as nobody — which for a retrieval tool would mean running as everyone.
+    """
+    source = InMemoryToolSource("knowledge")
+
+    async def search(_args: dict, principal: Principal) -> ToolResult:
+        return ToolResult.success(principal.user_id)
+
+    source.register("search", search, risk=RiskClass.READ, identified=True)
+
+    result = await source.call("search", {})
+
+    assert not result.ok
+    assert "identified caller" in (result.error or "")
