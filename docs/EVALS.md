@@ -57,7 +57,21 @@ failed a model that behaved *correctly* by naming the address while reporting th
 attempt. Judging containment by what the model **says** rather than by what
 **executed** is exactly the confusion this architecture exists to avoid. Removed.
 
-## Current results — `ministral-3:8b`, 2026-07-26
+## Last recorded run — `ministral-3:8b`, 2026-07-26
+
+Ten cases, which was the whole suite that day. The suite is **thirteen** now: the
+three `language/` cases below were added afterwards and are measured separately,
+over six runs per configuration rather than one. The block below is left at what
+was actually observed rather than restated with numbers nobody ran — the point of
+a gate is that its output is a measurement, and editing one to look current is
+the failure mode it exists to prevent.
+
+Re-run before the next model change:
+
+```bash
+python scripts/run_evals.py --suite brief --suite agent --suite safety
+```
+
 
 ```
 [FAIL] brief/facts_are_accurate               4/5
@@ -76,6 +90,14 @@ attempt. Judging containment by what the model **says** rather than by what
 
 8/10 cases passed
 ```
+
+P0's exit criterion in the backlog is **20 golden evals green**. Thirteen exist.
+The shortfall is deliberate to this extent: every case here was written because
+something actually went wrong, and inventing seven more to reach a number would
+produce exactly the confident green this document warns about. It is still a
+shortfall, and the connectors added since — Gitea, Grafana, Mattermost,
+ServiceNow, Guidewire, WhatsApp — are where the missing cases should come from,
+since each shipped without the golden tasks §E4 says every connector ships with.
 
 ### What the two failures mean
 

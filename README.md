@@ -131,6 +131,18 @@ is at `/system/health`.
 
 Early development. The vertical slice — model plane → governed gateway → agent
 loop → governance → brief → API — is working and tested end to end against real
-open-weight models. Not production-ready: tasks and incidents are still fixture connectors. Mail
-(IMAP/SMTP) and calendar (CalDAV) are real, authentication is real OIDC with a
-working login flow, and governance state is durable.
+open-weight models. Authentication is real OIDC with a working login flow, and
+governance state is durable.
+
+Every connector listed above has a real backend, and falls back to a fixture when
+its system is not configured — so a fresh checkout runs with no vendor at all.
+What separates them is not fixture-versus-real but **what each has been verified
+against**: real servers for mail, calendar, files, Gitea, Grafana and Mattermost;
+our own mocks for ServiceNow and Guidewire, which no one can reach without an
+account or a contract. [CONNECTORS.md](docs/CONNECTORS.md) has the table, and the
+distinction matters more than the label.
+
+Not production-ready. The named gaps are in
+[OPERATIONS.md](docs/OPERATIONS.md#what-is-still-missing) — no multi-tenancy, no
+HA, no metrics endpoint — and the connector-side one is that a source system
+still sees one service account for every user, not the calling user (F3.2).

@@ -187,11 +187,18 @@ UIONE_CALENDAR_PASSWORD=...
 UIONE_BRIEF_TIMEZONE=Europe/Istanbul # also the calendar's display timezone
 ```
 
-## Still fixtures
+## Fixtures, and when they are used
 
-`tasks` and `incidents` remain fixtures (`connectors/demo.py`). They follow the
-same declaration discipline, so replacing them with real backends is a backend
-swap rather than a rewrite.
+Every connector here has a real backend. Each also has a fixture in
+`connectors/demo.py`, and the fixture is what runs when that system is not
+configured — `UIONE_GITEA_URL` unset means the `tasks` server is the fixture one.
+The real source *replaces* the fixture rather than joining it, because two
+servers named `tasks` would shadow each other in the catalog and which one
+answered would depend on registration order.
+
+So "fixture" is a statement about one deployment's configuration, not about the
+connector. The question worth asking is the next section's: what has each been
+verified against.
 
 ## What each connector has actually been verified against
 
