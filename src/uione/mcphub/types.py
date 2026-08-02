@@ -147,7 +147,17 @@ class VerificationPlan:
 
     arguments: dict[str, Any]
 
-    expect: Callable[[ToolResult], bool]
+    expect: Callable[[ToolResult], bool | None]
+    """True confirms, False contradicts, and **None means the read-back could not
+    settle it**.
+
+    The third case is not squeamishness. A check that asserts an *absence* — "this
+    message is no longer in the unread list" — is only valid against a complete
+    list, and a truncated one cannot distinguish "gone" from "past the ceiling".
+    Forced to return a bool, such a predicate must either invent a confirmation it
+    did not earn or raise a false alarm. ``None`` is the honest third answer, and
+    it maps to ``unavailable``.
+    """
 
     describes: str = ""
     """What was expected, in a user's words: "uione/payments#3 is closed"."""

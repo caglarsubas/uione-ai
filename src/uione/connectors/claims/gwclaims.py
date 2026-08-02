@@ -34,7 +34,7 @@ from typing import Any
 import structlog
 
 from uione.connectors.http import Auth, VendorClient, VendorConfig, VendorError
-from uione.mcphub import InMemoryToolSource, RiskClass, ToolResult
+from uione.mcphub import InMemoryToolSource, RiskClass, ToolResult, VerificationPlan
 
 log = structlog.get_logger(__name__)
 
@@ -333,3 +333,41 @@ def build_claims_source(backend: ClaimsBackend, *, name: str = "claims") -> InMe
         risk=RiskClass.IRREVERSIBLE,
     )
     return source
+
+
+def register_claims_verification(verifier) -> None:
+    """Teach the verifier to read a claim's status back (F2.6).
+
+    A claim core is the system where an unverified write is most expensive: a
+    status drives reserves, regulatory clocks and correspondence, and being wrong
+    about one is not a customer-service problem. It is also the connector we have
+    never run against the real vendor — everything here is checked against a mock
+    we wrote — so a read-back that compares the server's own answer to what was
+    asked for is worth more here than anywhere else in the estate. It is the one
+    check that does not depend on our mock being faithful.
+
+    ``add_note`` is not covered. ``get_claim`` returns the claim's attributes, not
+    its note history, so there is nothing to look for. Re-reading and failing to
+    find a note that landed correctly would produce a false contradiction, which
+    is worse than an honest ``unverifiable``.
+    """
+
+    def plan_for_status(arguments: dict, _result: ToolResult) -> VerificationPlan | None:
+        wanted = str(arguments.get("status", "")).strip().lower()
+        if wanted not in SETTABLE_STATUSES:
+            return None
+
+        reference = str(arguments.get("claim", "")).strip()
+        if not reference:
+            return None
+
+        return VerificationPlan(
+            tool="claims.get_claim",
+            arguments={"claim": reference},
+            expect=lambda result: (
+                str((result.structured or {}).get("status", "")).lower() == wanted
+            ),
+            describes=f"{reference} is {wanted}",
+        )
+
+    verifier.register("claims.set_status", plan_for_status)

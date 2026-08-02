@@ -16,7 +16,11 @@ from uione.connectors.mail.message import (
     is_external,
     parse_message,
 )
-from uione.connectors.mail.source import build_mail_source, register_mail_undo
+from uione.connectors.mail.source import (
+    build_mail_source,
+    register_mail_undo,
+    register_mail_verification,
+)
 
 __all__ = [
     "Attachment",
@@ -34,4 +38,5 @@ __all__ = [
     "parse_message",
     "quote_imap",
     "register_mail_undo",
+    "register_mail_verification",
 ]

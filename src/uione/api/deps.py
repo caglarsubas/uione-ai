@@ -25,7 +25,12 @@ from uione.config import Settings, get_settings
 from uione.connectors.bi import GrafanaBI, build_grafana_source, grafana_config
 from uione.connectors.calendar import CalDavBackend, CalendarAccount, build_calendar_source
 from uione.connectors.chat import MattermostChat, build_mattermost_source, mattermost_config
-from uione.connectors.claims import ClaimsBackend, build_claims_source, claims_config
+from uione.connectors.claims import (
+    ClaimsBackend,
+    build_claims_source,
+    claims_config,
+    register_claims_verification,
+)
 from uione.connectors.demo import build_all
 from uione.connectors.files import (
     DocumentWriter,
@@ -36,6 +41,7 @@ from uione.connectors.files import (
 from uione.connectors.incidents import (
     ServiceNowIncidents,
     build_servicenow_source,
+    register_servicenow_verification,
     servicenow_config,
 )
 from uione.connectors.mail import (
@@ -43,6 +49,7 @@ from uione.connectors.mail import (
     MailAccount,
     build_mail_source,
     register_mail_undo,
+    register_mail_verification,
 )
 from uione.connectors.messaging import WhatsAppBusiness, build_whatsapp_source, whatsapp_config
 from uione.connectors.tasks import (
@@ -474,6 +481,9 @@ async def build_services() -> Services:
     # connector knows which read answers "did that actually happen".
     verifier = ActionVerifier()
     register_gitea_verification(verifier)
+    register_servicenow_verification(verifier)
+    register_claims_verification(verifier)
+    register_mail_verification(verifier)
 
     # Metrics are fed by the audit stream rather than a second instrumentation
     # path, so the counters cannot drift from the log they describe.

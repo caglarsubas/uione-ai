@@ -41,7 +41,7 @@ from typing import Any
 import structlog
 
 from uione.connectors.http import Auth, VendorClient, VendorConfig, VendorError
-from uione.mcphub import InMemoryToolSource, RiskClass, ToolResult
+from uione.mcphub import InMemoryToolSource, RiskClass, ToolResult, VerificationPlan
 
 log = structlog.get_logger(__name__)
 
@@ -376,3 +376,44 @@ def build_servicenow_source(
         risk=RiskClass.IRREVERSIBLE,
     )
     return source
+
+
+def register_servicenow_verification(verifier) -> None:
+    """Teach the verifier to read an incident's state back (F2.6).
+
+    ServiceNow is the connector where this matters most, because it is the one
+    with the largest gap between "the API accepted it" and "the record changed".
+    Business rules, client scripts and workflow transitions all run *after* the
+    Table API returns, and an instance configured to reject a transition answers
+    the PATCH with the record as it now stands rather than an error. The connector
+    reports what came back and is telling the truth about what it was told.
+
+    The comparison is against the **code**, not the label. `update_incident`
+    takes ``in_progress`` and sends ``2``; ``get_incident`` returns the code in
+    ``state`` and the label separately. Comparing labels would depend on an
+    instance's ``STATE_LABELS`` matching ours, which is a configuration setting
+    rather than a fact.
+
+    A work-note-only update has nothing to read back — the note is a journal
+    entry, and ``get_incident`` does not return the journal — so it plans
+    ``None`` and comes back unverifiable rather than wrongly confirmed.
+    """
+
+    def plan_for_update(arguments: dict, _result: ToolResult) -> VerificationPlan | None:
+        wanted = str(arguments.get("state", "")).strip().lower().replace(" ", "_")
+        expected = SETTABLE_STATES.get(wanted)
+        if expected is None:
+            return None
+
+        reference = str(arguments.get("incident", "")).strip()
+        if not reference:
+            return None
+
+        return VerificationPlan(
+            tool="incidents.get_incident",
+            arguments={"incident": reference},
+            expect=lambda result: (result.structured or {}).get("state") == expected,
+            describes=f"{reference} is {wanted.replace('_', ' ')}",
+        )
+
+    verifier.register("incidents.update_incident", plan_for_update)

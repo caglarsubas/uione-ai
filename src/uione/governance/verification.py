@@ -193,10 +193,19 @@ class ActionVerifier:
             )
 
         try:
-            matched = bool(plan.expect(readback))
+            matched = plan.expect(readback)
         except Exception:  # noqa: BLE001
             log.exception("governance.verification_predicate_failed", tool=spec.qualified_name)
             return Verification(Verdict.UNAVAILABLE, "could not interpret the read-back")
+
+        if matched is None:
+            # The predicate read the answer and it did not settle the question —
+            # a truncated list against an absence check, most often. Not a
+            # contradiction, and emphatically not a confirmation.
+            return Verification(
+                Verdict.UNAVAILABLE,
+                f"the read-back could not establish that {plan.describes or 'the change landed'}",
+            )
 
         if matched:
             log.info(
