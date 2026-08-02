@@ -6,6 +6,7 @@ from uione.evals.assertions import (
     AnyOf,
     Assertion,
     AssertionResult,
+    CalledAtMostOnce,
     Contains,
     EvalOutput,
     FactMatches,
@@ -27,6 +28,7 @@ from uione.evals.runner import (
 
 __all__ = [
     "AnyOf",
+    "CalledAtMostOnce",
     "LANGUAGE_CASES",
     "Absent",
     "ActionHeld",

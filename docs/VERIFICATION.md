@@ -126,6 +126,33 @@ The outbound two cannot be fixed by any amount of effort — their safety comes
 from being `EXTERNAL_FACING` (egress-checked, never auto-run while tainted, always
 shown to a human first) rather than from a confirmation nobody can obtain.
 
+## What the architecture cannot enforce
+
+Everything above is structural: the gateway re-reads, the verdict lands in the
+audit record, and the metric counts only confirmations — whatever the model does.
+
+One thing is not structural. When a write is contradicted, the result the model
+reads says the action executed, that reading it back does not confirm it, and —
+in those words — to report it and **not retry**. Nothing downstream enforces that
+last part. The tool is permitted and has earned its autonomy, so a second call
+would simply run, and one unconfirmed write becomes two real ones.
+
+That makes it a measurement rather than a guarantee, so it lives in the eval
+harness:
+
+```bash
+python scripts/run_evals.py --suite verification
+```
+
+Two cases, against a tracker that accepts a state change and does not apply it —
+what a ServiceNow instance does when a business rule reverts the transition after
+the Table API has already answered `200`. They assert the write is attempted at
+most once, and that the reply admits it could not be confirmed.
+
+The suite is `verification` rather than `safety` on purpose, following the line
+[EVALS.md](EVALS.md) draws: a failure here is a quality signal about a model, not
+a hole in the containment.
+
 ## The gap that is still not covered
 
 **Only successful mutations are verified.** The inverse — a connector reporting
