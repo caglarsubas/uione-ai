@@ -21,8 +21,13 @@ CHART = Path(__file__).resolve().parents[1] / "deploy" / "helm" / "uione"
 
 pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 
-#: The one required value, so every invocation below is otherwise minimal.
-BASE = ["--set", "modelPlane.url=http://engine.svc:8080/v1"]
+#: The two values a release cannot start without, so every invocation below is
+#: otherwise minimal. `UIONE_AUTH_MODE` is here because the chart refuses to
+#: render a production environment with dev auth — see the test at the bottom.
+BASE = [
+    "--set", "modelPlane.url=http://engine.svc:8080/v1",
+    "--set", "config.UIONE_AUTH_MODE=proxy",
+]  # fmt: skip
 
 DISTRIBUTED = [
     *BASE,
@@ -304,4 +309,29 @@ def test_a_file_share_without_a_volume_is_refused() -> None:
 
 def test_a_file_share_on_the_volume_is_accepted() -> None:
     docs = render(*BASE, "--set", "config.UIONE_FILES_ROOT=/data/share")
+    assert of_kind(docs, "Deployment", "web")
+
+
+def test_a_production_environment_with_dev_auth_is_refused() -> None:
+    """`UIONE_AUTH_MODE` defaults to dev, which accepts unauthenticated headers,
+    and the identity layer refuses that outside a dev environment. The chart
+    defaults the environment to production, so a release setting neither is a
+    CrashLoopBackOff with the reason four screens into `kubectl logs`.
+
+    Found by installing on a real cluster rather than rendering — which is the
+    whole argument for the `cluster` CI job.
+    """
+    message = refuse("--set", "modelPlane.url=http://engine.svc:8080/v1")
+
+    assert "accepts unauthenticated headers" in message
+    assert "CrashLoopBackOff" in message
+
+
+def test_a_dev_environment_may_use_dev_auth() -> None:
+    """The refusal is about the combination, not about dev auth existing."""
+    docs = render(
+        "--set", "modelPlane.url=http://engine.svc:8080/v1",
+        "--set", "config.UIONE_ENVIRONMENT=dev",
+    )  # fmt: skip
+
     assert of_kind(docs, "Deployment", "web")

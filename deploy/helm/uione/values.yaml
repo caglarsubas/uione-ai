@@ -97,6 +97,16 @@ config:
   UIONE_LOG_LEVEL: INFO
   UIONE_BRIEF_TIMEZONE: UTC
 
+  # Required. There is no safe default: `dev` accepts unauthenticated headers
+  # and the identity layer refuses it in a production environment, so leaving
+  # this unset is a CrashLoopBackOff rather than an insecure deployment — which
+  # is the right direction to fail, and the chart refuses to render it at all.
+  #
+  #   oidc      with UIONE_OIDC_ISSUER and UIONE_OIDC_AUDIENCE
+  #   proxy     behind an ingress that authenticates and sets X-Forwarded-User
+  #   disabled  refuses every request; useful while you configure the above
+  # UIONE_AUTH_MODE: oidc
+
 service:
   type: ClusterIP
   port: 8000

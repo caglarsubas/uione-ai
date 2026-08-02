@@ -92,6 +92,24 @@ anybody is in a position to fix it cheaply.
 {{- end -}}
 
 {{/*
+Auth has to be configured, or the container exits on boot.
+
+`UIONE_AUTH_MODE` defaults to `dev`, which accepts unauthenticated headers, and
+the identity layer refuses that outside a dev environment — by design, and it is
+the right design. The chart defaults `UIONE_ENVIRONMENT` to `production`, so a
+release that sets neither is a CrashLoopBackOff with the reason four screens into
+`kubectl logs`.
+
+This was found by installing the chart on a real cluster, not by rendering it,
+which is the entire argument for the `cluster` CI job.
+*/}}
+{{- $env := index .Values.config "UIONE_ENVIRONMENT" | default "production" -}}
+{{- $mode := index .Values.config "UIONE_AUTH_MODE" | default "dev" -}}
+{{- if and (ne $env "dev") (eq $mode "dev") -}}
+{{- fail (printf "UIONE_ENVIRONMENT is %s and UIONE_AUTH_MODE is 'dev', which accepts unauthenticated headers. The identity layer refuses that combination at startup, so the pod would CrashLoopBackOff. Set config.UIONE_AUTH_MODE to 'oidc' (with UIONE_OIDC_ISSUER) or 'proxy' (behind an authenticating ingress), or 'disabled' to refuse every request while you configure it." $env) -}}
+{{- end -}}
+
+{{/*
 The file share has to be on a writable mount.
 
 docker-entrypoint.sh creates UIONE_FILES_ROOT if it is missing, deliberately —

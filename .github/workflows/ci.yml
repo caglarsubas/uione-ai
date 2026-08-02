@@ -98,6 +98,7 @@ jobs:
             --set image.tag=ci \
             --set image.pullPolicy=Never \
             --set modelPlane.url=http://nowhere.invalid:8080/v1 \
+            --set config.UIONE_AUTH_MODE=proxy \
             --wait --timeout 5m
 
       - name: No migration Job, because this profile has exactly one pod
@@ -143,6 +144,7 @@ jobs:
             --set image.tag=ci \
             --set image.pullPolicy=Never \
             --set modelPlane.url=http://nowhere.invalid:8080/v1 \
+            --set config.UIONE_AUTH_MODE=proxy \
             --wait --timeout 5m
           pod=$(kubectl get pod -l app.kubernetes.io/component=web -o name | head -1)
           kubectl exec "$pod" -- test -f /data/uione.db

@@ -109,6 +109,7 @@ the person doing the install.
 | `serviceMonitor` without a token | `/metrics` is 404 without one; the ServiceMonitor would scrape nothing and report itself healthy |
 | `UIONE_FILES_ROOT` off `/data` | The entrypoint creates that directory at startup and cannot on a read-only root — CrashLoopBackOff with a permission error four levels down |
 | `UIONE_FILES_ROOT` without persistence | Every document the assistant writes vanishes with the pod |
+| production environment + `dev` auth | Dev auth accepts unauthenticated headers; the identity layer refuses it outside a dev environment, so the pod CrashLoopBackOffs |
 
 `tests/test_helm_chart.py` asserts every one of them, and CI installs helm so
 they are real there rather than skipped.
@@ -146,6 +147,14 @@ The `cluster` CI job builds the image, stands up a kind cluster, installs the
 appliance profile, and asserts what `helm template` cannot: the PVC binds, uid
 10001 writes its database through a read-only root filesystem, the pod becomes
 Ready, and a second `helm upgrade` rolls cleanly with the data still there.
+
+**Its first run found a defect nothing else could have.** The chart shipped
+`UIONE_ENVIRONMENT: production` with no auth configuration, and `UIONE_AUTH_MODE`
+defaults to `dev` — which accepts unauthenticated headers, and which the identity
+layer refuses outside a dev environment. The chart as published could not start.
+It rendered perfectly, passed 24 template tests, and CrashLoopBackOffed on a real
+cluster with the reason four screens into `kubectl logs`. That is now the seventh
+refusal in the table above.
 
 It installs with **no reachable model plane**, and that is the assertion rather
 than a shortcut. The probes point at `/health` precisely so a shared dependency
