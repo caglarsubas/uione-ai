@@ -182,10 +182,10 @@ def test_the_database_url_comes_from_a_secret_not_a_value() -> None:
 # -- migrations ------------------------------------------------------------
 
 
-def test_migrations_run_once_as_a_hook_not_in_every_pod() -> None:
-    """UIONE_DB_AUTO_UPGRADE on means every replica races to migrate the same
-    database. A pre-upgrade Job runs once, and a failed migration fails the
-    release instead of half-migrating under live traffic."""
+def test_postgres_migrates_with_a_hook_and_no_pod_races() -> None:
+    """Many pods, so UIONE_DB_AUTO_UPGRADE on would have every replica racing to
+    migrate the same database. A pre-upgrade Job runs once, and a failed
+    migration fails the release instead of half-migrating under live traffic."""
     docs = render(*DISTRIBUTED)
 
     job = of_kind(docs, "Job")[0]
@@ -201,10 +201,28 @@ def test_migrations_run_once_as_a_hook_not_in_every_pod() -> None:
         assert env_of(deployment)["UIONE_DB_AUTO_UPGRADE"] == "false"
 
 
+def test_the_migration_job_mounts_no_volume() -> None:
+    """It is a pre-install hook, so it runs *before* Helm creates the chart's
+    ordinary resources — a claim it mounted would not exist yet. It only exists
+    on PostgreSQL, where the database is elsewhere entirely, so it needs none."""
+    container = of_kind(render(*DISTRIBUTED), "Job")[0]["spec"]["template"]["spec"]["containers"][0]
+    assert [m["mountPath"] for m in container["volumeMounts"]] == ["/tmp"]
+
+
+def test_sqlite_migrates_in_process_with_no_job() -> None:
+    """SQLite implies exactly one pod — every configuration with more is refused
+    above — so the race the Job exists to prevent cannot happen, and the pod that
+    owns the file migrates it."""
+    docs = render(*BASE)
+
+    assert not of_kind(docs, "Job")
+    assert env_of(of_kind(docs, "Deployment", "web")[0])["UIONE_DB_AUTO_UPGRADE"] == "true"
+
+
 def test_the_migration_job_name_changes_per_revision() -> None:
     """Jobs are immutable. A fixed name makes the second upgrade fail with
     "field is immutable" instead of migrating."""
-    first = of_kind(render(*BASE), "Job")[0]["metadata"]["name"]
+    first = of_kind(render(*DISTRIBUTED), "Job")[0]["metadata"]["name"]
     assert first.endswith("-1")  # Release.Revision
 
 

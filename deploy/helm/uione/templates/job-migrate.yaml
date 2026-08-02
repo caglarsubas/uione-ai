@@ -1,4 +1,4 @@
-{{- if .Values.database.migrateOnUpgrade }}
+{{- if and .Values.database.migrateOnUpgrade (ne (include "uione.isSqlite" .) "true") }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -42,8 +42,14 @@ spec:
           env:
             {{- include "uione.env" . | nindent 12 }}
           {{- include "uione.envFrom" . | nindent 10 }}
+          # No volume. This Job only exists on PostgreSQL, where the database is
+          # somewhere else entirely — and mounting the release's PersistentVolume
+          # from a pre-install hook would reference a claim Helm has not created
+          # yet.
           volumeMounts:
-            {{- include "uione.volumeMounts" . | nindent 12 }}
+            - name: tmp
+              mountPath: /tmp
       volumes:
-        {{- include "uione.volumes" . | nindent 8 }}
+        - name: tmp
+          emptyDir: {}
 {{- end }}
