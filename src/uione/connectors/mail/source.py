@@ -16,7 +16,7 @@ from __future__ import annotations
 import structlog
 
 from uione.connectors.mail.backend import MailBackend, MailError
-from uione.mcphub import InMemoryToolSource, RiskClass, ToolResult
+from uione.mcphub import InMemoryToolSource, RiskClass, ToolResult, VerificationPlan
 
 log = structlog.get_logger(__name__)
 
@@ -47,12 +47,17 @@ def build_mail_source(backend: MailBackend, *, name: str = "mail") -> InMemoryTo
             return ToolResult.failure(str(exc))
 
         if not messages:
-            return ToolResult.success("No unread messages.", {"count": 0})
+            return ToolResult.success("No unread messages.", {"count": 0, "uids": []})
         return ToolResult.success(
             "\n".join(m.render() for m in messages),
             {
                 "count": len(messages),
                 "external_senders": sum(1 for m in messages if m.external),
+                # Already in the rendered text as `[uid]`, so this adds no
+                # information the model could not read — it makes it addressable
+                # without parsing prose, which is what lets `mark_read` be
+                # verified by absence (F2.6).
+                "uids": [m.uid for m in messages],
             },
         )
 
@@ -212,3 +217,57 @@ def register_mail_undo(journal) -> None:
         "mail.mark_read",
         lambda args, _result: ("mail.mark_unread", {"uid": args["uid"]}),
     )
+
+
+def register_mail_verification(verifier) -> None:
+    """Teach the verifier to confirm a message left the unread set (F2.6).
+
+    The first check here that asserts an **absence**. Everything else reads a
+    record back and compares a field; this one re-reads a *list* and requires the
+    uid to be gone from it. That shape matters beyond mail — it is the one the
+    unverified inverse case needs (a write reported as failed that actually
+    landed), and having a working example of it in the tree is half of building
+    that.
+
+    **Absence is only provable against a complete list.** The read asks for the
+    maximum the tool will return, and if the mailbox has at least that many unread
+    messages the list was truncated — a uid missing from it could be genuinely
+    read, or could be sitting just past the ceiling. That is exactly the case the
+    predicate answers ``None`` for, which reports unverifiable. Answering ``True``
+    there would manufacture a confirmation out of a list nobody finished reading,
+    and this check exists to stop that class of thing rather than commit it.
+
+    ``send_reply`` is not covered, and cannot be. It goes out over SMTP; there is
+    no read that answers "did that leave the building". Its safety comes from
+    being ``EXTERNAL_FACING`` — egress-checked, never auto-run while tainted, and
+    always shown to a human first — rather than from a confirmation nobody can
+    obtain.
+    """
+
+    def plan_for_mark_read(arguments: dict, _result: ToolResult) -> VerificationPlan | None:
+        uid = str(arguments.get("uid", "")).strip()
+        if not uid:
+            return None
+
+        def gone(result: ToolResult) -> bool | None:
+            structured = result.structured or {}
+            uids = structured.get("uids")
+            if uids is None:
+                # A result without the field: nothing to judge against.
+                return None
+            if uid in {str(u) for u in uids}:
+                # Still unread. This is the contradiction worth reporting.
+                return False
+            if int(structured.get("count") or 0) >= MAX_LIMIT:
+                # Absent from a list that was cut off, which proves nothing.
+                return None
+            return True
+
+        return VerificationPlan(
+            tool="mail.list_unread",
+            arguments={"limit": MAX_LIMIT},
+            expect=gone,
+            describes=f"message {uid} is no longer unread",
+        )
+
+    verifier.register("mail.mark_read", plan_for_mark_read)

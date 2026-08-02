@@ -36,6 +36,16 @@ from uione.vendormocks.gitea import build_gitea_mock, seed_gitea
 
 ALICE = Principal(user_id="uione", roles=frozenset({"analyst"}))
 
+WIDE_POLICY = ToolPolicy(
+    [
+        Grant(
+            role="analyst",
+            tools=frozenset({"incidents.*", "claims.*", "mail.*"}),
+            max_risk=RiskClass.IRREVERSIBLE,
+        )
+    ]
+)
+
 POLICY = ToolPolicy(
     [
         Grant(
@@ -306,3 +316,178 @@ async def test_an_unparseable_reference_is_not_read_back(gitea_gateway_factory) 
 
     assert not call.ok
     assert call.verification is None
+
+
+# -- the rest of the write-capable estate ----------------------------------
+
+
+async def gateway_over(source, register) -> McpGateway:
+    """A gateway with one connector and its own registered read-back."""
+    verifier = ActionVerifier()
+    register(verifier)
+    gateway = McpGateway(policy=WIDE_POLICY, audit=AuditLog(InMemoryAuditSink()), verifier=verifier)
+    await gateway.register(source)
+    return gateway
+
+
+async def test_a_servicenow_state_change_is_confirmed() -> None:
+    from uione.connectors.incidents import (
+        ServiceNowIncidents,
+        build_servicenow_source,
+        register_servicenow_verification,
+        servicenow_config,
+    )
+    from uione.vendormocks.servicenow import build_servicenow_mock, seed_servicenow
+
+    app = build_servicenow_mock(seed_servicenow())
+    incidents = ServiceNowIncidents(
+        servicenow_config("http://snow.mock", "admin", "pw"),
+        user="uione",
+        client=httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://snow.mock"
+        ),
+    )
+    gateway = await gateway_over(
+        build_servicenow_source(incidents), register_servicenow_verification
+    )
+
+    call = await gateway.call(
+        ALICE, "incidents.update_incident", {"incident": "INC0010001", "state": "in_progress"}
+    )
+
+    assert call.ok
+    assert call.verification.verdict is Verdict.CONFIRMED
+
+
+async def test_a_work_note_alone_has_nothing_to_read_back() -> None:
+    """`get_incident` does not return the journal, so this is honestly
+    unverifiable rather than quietly confirmed."""
+    from uione.connectors.incidents import (
+        ServiceNowIncidents,
+        build_servicenow_source,
+        register_servicenow_verification,
+        servicenow_config,
+    )
+    from uione.vendormocks.servicenow import build_servicenow_mock, seed_servicenow
+
+    app = build_servicenow_mock(seed_servicenow())
+    incidents = ServiceNowIncidents(
+        servicenow_config("http://snow.mock", "admin", "pw"),
+        user="uione",
+        client=httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://snow.mock"
+        ),
+    )
+    gateway = await gateway_over(
+        build_servicenow_source(incidents), register_servicenow_verification
+    )
+
+    call = await gateway.call(
+        ALICE, "incidents.update_incident", {"incident": "INC0010001", "work_note": "looking"}
+    )
+
+    assert call.ok
+    assert call.verification.verdict is Verdict.UNVERIFIABLE
+
+
+async def test_a_claim_status_change_is_confirmed() -> None:
+    from uione.connectors.claims import (
+        ClaimsBackend,
+        build_claims_source,
+        claims_config,
+        register_claims_verification,
+    )
+    from uione.vendormocks.claims import build_claims_mock, seed_claims
+
+    app = build_claims_mock(seed_claims())
+    claims = ClaimsBackend(
+        claims_config("http://claims.mock", ""),
+        user="uione",
+        client=httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://claims.mock"
+        ),
+    )
+    gateway = await gateway_over(build_claims_source(claims), register_claims_verification)
+
+    call = await gateway.call(
+        ALICE, "claims.set_status", {"claim": "CLM-004401", "status": "reopened"}
+    )
+
+    assert call.ok
+    assert call.verification.verdict is Verdict.CONFIRMED
+
+
+# -- absence, which is the interesting shape -------------------------------
+
+
+def mail_backend(count: int = 3):
+    from datetime import UTC, datetime
+
+    from uione.connectors.mail import InMemoryMailBackend
+    from uione.connectors.mail.message import MailMessage
+
+    return InMemoryMailBackend(
+        messages=[
+            MailMessage(
+                uid=str(i),
+                subject=f"Message {i}",
+                from_address="cfo@corp.example",
+                body="body",
+                date=datetime(2026, 7, 27, 8, i % 60, tzinfo=UTC),
+                unread=True,
+            )
+            for i in range(1, count + 1)
+        ]
+    )
+
+
+async def test_marking_read_is_confirmed_by_the_message_leaving_the_unread_list() -> None:
+    from uione.connectors.mail import build_mail_source, register_mail_verification
+
+    gateway = await gateway_over(build_mail_source(mail_backend()), register_mail_verification)
+
+    call = await gateway.call(ALICE, "mail.mark_read", {"uid": "2"})
+
+    assert call.ok
+    assert call.verification.verdict is Verdict.CONFIRMED
+    assert "no longer unread" in call.verification.detail
+
+
+async def test_a_message_still_unread_is_contradicted() -> None:
+    """A backend that accepts the flag and does not apply it."""
+    from uione.connectors.mail import build_mail_source, register_mail_verification
+
+    backend = mail_backend()
+
+    async def accept_and_ignore(uid: str) -> None:
+        return None
+
+    backend.mark_read = accept_and_ignore  # type: ignore[method-assign]
+    gateway = await gateway_over(build_mail_source(backend), register_mail_verification)
+
+    call = await gateway.call(ALICE, "mail.mark_read", {"uid": "2"})
+
+    assert call.verification.verdict is Verdict.CONTRADICTED
+    assert call.audit.outcome is AuditOutcome.UNCONFIRMED
+
+
+async def test_absence_against_a_truncated_list_is_unavailable_not_confirmed() -> None:
+    """The check that keeps this honest.
+
+    With the mailbox at or above the read ceiling, a uid missing from the list
+    could be genuinely read or could be sitting just past the cut. Confirming
+    there would manufacture a verification out of a list nobody finished reading
+    — which is the exact failure this whole feature exists to prevent.
+    """
+    from uione.connectors.mail import build_mail_source, register_mail_verification
+    from uione.connectors.mail.source import MAX_LIMIT
+
+    gateway = await gateway_over(
+        build_mail_source(mail_backend(MAX_LIMIT + 5)), register_mail_verification
+    )
+
+    call = await gateway.call(ALICE, "mail.mark_read", {"uid": "2"})
+
+    assert call.ok
+    assert call.verification.verdict is Verdict.UNAVAILABLE
+    assert not call.audit.verified

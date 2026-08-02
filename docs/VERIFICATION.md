@@ -27,7 +27,7 @@ tasks.update_issue  →  connector: "PAY#2 is now closed"
 | `confirmed` | Read back, and the world matches | **yes** |
 | `contradicted` | Read back, and it does not | no |
 | `unverifiable` | No read-back registered for this tool | no |
-| `unavailable` | The read-back itself could not be completed | no |
+| `unavailable` | The read-back could not be completed, or could not settle it | no |
 
 Only `confirmed` counts. The north-star metric is *Verified* Assisted Actions,
 and a metric that treats "nobody checked" as a pass grows by adding tools nobody
@@ -65,24 +65,76 @@ appears to read an issue it has not yet touched.
 | Tool | Read back with | Checks |
 |---|---|---|
 | `tasks.update_issue` | `tasks.get_issue` | the issue's state is what was asked for |
+| `incidents.update_incident` | `incidents.get_incident` | the incident's state **code** matches |
+| `claims.set_status` | `claims.get_claim` | the claim's status matches |
+| `mail.mark_read` | `mail.list_unread` | the uid is **absent** from the unread list |
 
-That is one tool, deliberately. The mechanism is proved end to end against a real
-connector before it is spread across six — the same order the connectors
-themselves were built in.
+ServiceNow is where this matters most, because it has the widest gap between "the
+API accepted it" and "the record changed": business rules, client scripts and
+workflow transitions all run *after* the Table API returns, and an instance that
+rejects a transition answers the PATCH with the record as it now stands rather
+than an error. The connector reports what it was told, truthfully, and is wrong.
 
-**`tasks.comment_on_issue` is not covered, and the reason is not laziness.** It
-could be checked by re-reading the issue and looking for the comment body, but
-the read tool returns only the last ten comments. On a busy issue a comment that
-landed perfectly would read back as missing, and a verifier that reports false
-contradictions on healthy writes is worse than no verifier at all. Covering it
-properly needs the comment id threaded out of the write.
+Claims is where an unverified write is most *expensive* — a status drives
+reserves and regulatory clocks — and it is also the connector we have never run
+against the real vendor. A check that compares the server's own answer to what
+was asked for is the one assurance here that does not depend on our mock being
+faithful.
 
-## The gap that is not covered
+## Absence, and the third answer
+
+`mail.mark_read` is checked by re-reading the unread list and requiring the uid to
+be **gone**. That shape needed something the first version of this did not have.
+
+A predicate returning `bool` cannot express "I read the answer and it did not
+settle the question". Absence is only provable against a *complete* list: if the
+mailbox has more unread messages than the read returns, a missing uid could be
+genuinely read or could be sitting just past the ceiling. Forced to choose, such
+a predicate must either raise a false alarm or — far worse — manufacture a
+confirmation out of a list nobody finished reading.
+
+So `expect` may return `None`, which reports `unavailable`:
+
+| Returns | Verdict |
+|---|---|
+| `True` | `confirmed` |
+| `False` | `contradicted` |
+| `None` | `unavailable` — the read-back could not settle it |
+
+`test_absence_against_a_truncated_list_is_unavailable_not_confirmed` holds that
+line. Deleting the truncation guard makes it report `write_confirmed` for a write
+nobody checked, which is precisely the class of thing this feature exists to
+prevent rather than commit.
+
+## What is deliberately not covered
+
+| Tool | Why not |
+|---|---|
+| `mail.send_reply` | SMTP. There is no read that answers "did that leave the building". |
+| `whatsapp.send_message` | Same — outbound, no read-back. |
+| `tasks.comment_on_issue` | `get_issue` returns only the last ten comments, so a comment that landed perfectly reads back as missing on a busy issue. Needs the comment id threaded out of the write. |
+| `claims.add_note` | `get_claim` returns attributes, not the note history. Nothing to look for. |
+| `chat.send_message` | `read_channel` returns no message identifiers, so a match would be prose-shaped and fragile. |
+| `calendar.propose_meeting` | `calendar.upcoming` reports a count and no identifiers. |
+| `documents.write_document` | No read tool over the share. |
+
+Every one of these is a false-contradiction risk, not an oversight: re-reading and
+failing to find something that landed correctly is worse than an honest
+`unverifiable`, because a verifier that cries wolf is one people learn to ignore.
+
+The outbound two cannot be fixed by any amount of effort — their safety comes
+from being `EXTERNAL_FACING` (egress-checked, never auto-run while tainted, always
+shown to a human first) rather than from a confirmation nobody can obtain.
+
+## The gap that is still not covered
 
 **Only successful mutations are verified.** The inverse — a connector reporting
-failure on a write that actually landed, after a timeout on the vendor's side —
-is the nastier drift, and nothing here catches it. It needs predicates that
-assert *absence*, which is a different shape of plan.
+failure on a write that actually landed, after a timeout on the vendor's side — is
+the nastier drift, and nothing here catches it.
+
+It is closer than it was: that case needs predicates that assert absence, and
+`mail.mark_read` is now a working example of one. What remains is running the
+check on the failure path and inverting the expectation.
 
 Named rather than implied, because "verified" is a word this product sells and a
 gate with a hole in it that nobody documents is worse than a smaller gate.
@@ -105,7 +157,10 @@ def register_gitea_verification(verifier) -> None:
     verifier.register("tasks.update_issue", plan_for_update)
 ```
 
-`expect` reads the **read-back's** result, never the write's own response.
+`expect` returns `True` to confirm, `False` to contradict, and `None` when the
+read-back could not settle it — see [absence](#absence-and-the-third-answer).
+
+It reads the **read-back's** result, never the write's own response.
 Comparing a write against what it said about itself verifies nothing: it is the
 same claim, made twice.
 
