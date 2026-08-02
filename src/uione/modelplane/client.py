@@ -25,6 +25,7 @@ from uione.modelplane.types import (
     ToolDefinition,
     Usage,
 )
+from uione.observability import tracing
 
 log = structlog.get_logger(__name__)
 
@@ -224,13 +225,35 @@ class ModelPlaneClient:
         if response_format is not None:
             payload["response_format"] = response_format
 
-        # The slot is held for the request only. Retries inside `_post` happen
-        # within it, deliberately: a retry is the same request and releasing
-        # between attempts would send it to the back of the queue.
-        async with self.gate.slot(priority):
-            data = await self._post("/chat/completions", payload)
+        # The span starts *before* the admission gate on purpose. Time spent
+        # queueing for a GPU slot is the single most common reason a brief is
+        # slow, and a span that opened after the wait would show a fast model
+        # call and no explanation for the missing seconds.
+        with tracing.span(
+            f"model {task}",
+            **{
+                "uione.model": resolved,
+                "uione.task": str(task),
+                "uione.priority": str(priority),
+            },
+        ) as current:
+            # The slot is held for the request only. Retries inside `_post`
+            # happen within it, deliberately: a retry is the same request and
+            # releasing between attempts would send it to the back of the queue.
+            async with self.gate.slot(priority):
+                data = await self._post("/chat/completions", payload)
 
-        completion = _parse_completion(data, fallback_model=resolved)
+            completion = _parse_completion(data, fallback_model=resolved)
+            tracing.annotate(
+                current,
+                **{
+                    "uione.model.served": completion.model or resolved,
+                    "uione.tokens.prompt": completion.usage.prompt_tokens,
+                    "uione.tokens.completion": completion.usage.completion_tokens,
+                    "uione.tool_calls": len(completion.tool_calls),
+                },
+            )
+
         self.usage.record(completion.model or resolved, completion.usage)
         log.debug(
             "modelplane.chat",

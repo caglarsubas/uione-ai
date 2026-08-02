@@ -67,13 +67,17 @@ know before they commit:
 
 * **No multi-tenancy.** One organisation per deployment. Permissions are
   per-user within it, but there is no tenant boundary above that.
-*(Rate limiting was on this list. It is now [admission control](#admission-control), below.)*
 * **No high availability.** The scheduler assumes it is the only one running;
   two replicas would both generate briefs. `UIONE_SCHEDULER_ENABLED=false` on
   the extra replicas is the workaround, not a design.
-*(The metrics endpoint was on this list. It is now [Metrics](#metrics), below —
-though tracing is still missing: there is no OTel span from UI to connector, so
-"why was this brief slow" is still answered by reading logs.)*
+* **No per-user credentials.** Every connector authenticates with one service
+  account per system, so a source system sees a single identity for all users
+  and its own permissions cannot tell them apart (F3.2).
+
+Three things have left this list and are documented below rather than deleted,
+so an operator reading an older revision can find where they went: rate limiting
+is now [admission control](#admission-control), and observability is
+[Metrics](#metrics) and [Tracing](#tracing).
 
 
 ## Metrics
@@ -124,6 +128,62 @@ hold the buckets to.
 The counters are fed from the audit stream rather than a second instrumentation
 path, so they cannot drift from the log they describe — they are the same events,
 added up.
+
+## Tracing
+
+Metrics answer "how often" and "how slow on average". They cannot answer the
+question you actually get asked — **"why was *this* brief slow?"** — where the
+answer is one span at the bottom of a tree.
+
+```bash
+pip install '.[otel]'
+```
+
+```bash
+UIONE_OTEL_ENDPOINT=http://tempo:4318/v1/traces
+```
+
+Empty disables it, and there is no default: traces carry an organisation's tool
+names, model names and timings, and the rule at the top of `config.py` is that
+nothing may point at the public internet.
+
+A request produces one tree:
+
+```
+POST /chat
+├── model workhorse            uione.tokens.prompt=2411  uione.tokens.completion=88
+├── tool tasks.my_open_issues  uione.outcome=allowed
+├── tool tasks.update_issue    uione.outcome=allowed  uione.verification=confirmed
+│   └── tool tasks.get_issue   ← the read-back, nested under the write it checks
+└── model workhorse            uione.tokens.prompt=3120
+```
+
+The model span opens **before** the admission gate deliberately. Time spent
+queueing for a GPU slot is the most common reason a brief is slow, and a span
+that opened after the wait would show a fast model call and no explanation for
+the missing seconds.
+
+### It is optional, and it degrades rather than crashes
+
+| Install | Behaviour |
+|---|---|
+| No OpenTelemetry (the default) | `span()` is a context manager that does nothing |
+| `opentelemetry-api` only | logs `tracing.sdk_missing`, stays off |
+| SDK but no OTLP exporter | logs `tracing.exporter_missing`, **starts anyway** |
+| Full `[otel]` extra + endpoint | exports |
+
+The third row is a test, not a hope. `opentelemetry-exporter-otlp` is a separate
+distribution from the SDK, so a partial install is easy to produce — and a
+service that refuses to start because its *telemetry* is misconfigured has
+inverted the priority. The operator wanted traces, not an outage.
+
+### No user identifiers on spans
+
+Same reasoning as the metrics endpoint. Traces land in a system operators and
+often a vendor's backend can read, and G15 promises employees their assistant is
+not a surveillance channel. Spans carry what the system did — tool, server, risk,
+outcome, verification verdict, model, token counts. The audit log carries who,
+under access control, for auditors.
 
 ## Conversations
 

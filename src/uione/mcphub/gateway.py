@@ -23,6 +23,7 @@ from uione.mcphub.policy import RateLimiter, ToolPolicy
 from uione.mcphub.source import ToolSource
 from uione.mcphub.types import ActionContext, Principal, RiskClass, ToolResult, ToolSpec
 from uione.modelplane.types import ToolDefinition
+from uione.observability import tracing
 
 log = structlog.get_logger(__name__)
 
@@ -318,67 +319,95 @@ class McpGateway:
 
         source = self._sources[spec.server]
 
-        started = self._clock()
-        try:
-            # The caller is an argument, not state the source carries between
-            # calls: two users are in flight at once and the second must not be
-            # able to overwrite the first's identity mid-call. See `source.py`.
-            result = await source.call(spec.tool, arguments, principal=principal)
-        except Exception as exc:  # noqa: BLE001 — a connector must not crash the agent
-            self._breaker.record_failure(spec.server)
+        # The span covers the connector call *and* its read-back, which is what
+        # makes "why was this brief slow" answerable: one subtree per tool, with
+        # the slow child visible inside it. The verification's own call re-enters
+        # this method and so nests naturally underneath.
+        #
+        # No principal on the span. Traces are read by operators and often by a
+        # vendor's backend, and G15 says the assistant is not a surveillance
+        # channel — spans carry what the system did, the audit log carries who.
+        with tracing.span(
+            f"tool {spec.qualified_name}",
+            **{
+                "uione.server": spec.server,
+                "uione.tool": spec.qualified_name,
+                "uione.risk": str(spec.risk),
+                "uione.mutating": spec.mutating,
+            },
+        ) as current:
+            started = self._clock()
+            try:
+                # The caller is an argument, not state the source carries between
+                # calls: two users are in flight at once and the second must not
+                # be able to overwrite the first's identity mid-call. See
+                # `source.py`.
+                result = await source.call(spec.tool, arguments, principal=principal)
+            except Exception as exc:  # noqa: BLE001 — a connector must not crash the agent
+                self._breaker.record_failure(spec.server)
+                tracing.annotate(current, **{"uione.outcome": "failed"})
+                record = await self._audit.record(
+                    principal=principal,
+                    server=spec.server,
+                    tool=spec.qualified_name,
+                    risk=spec.risk,
+                    outcome=AuditOutcome.FAILED,
+                    arguments=arguments,
+                    duration_ms=(self._clock() - started) * 1000,
+                    detail=f"{type(exc).__name__}: {exc}",
+                    correlation_id=correlation_id,
+                )
+                return GatewayCall(ToolResult.failure(f"{type(exc).__name__}: {exc}"), record)
+
+            duration_ms = (self._clock() - started) * 1000
+            if result.ok:
+                self._breaker.record_success(spec.server)
+            else:
+                self._breaker.record_failure(spec.server)
+
+            if self._governor is not None:
+                await self._governor.note_execution(principal, spec, arguments, result)
+
+            # Read-after-write (F2.6). Only successful mutations: a read needs no
+            # confirming, and a write that already reported failure needs a
+            # different question asked — see the known gap in
+            # `governance.verification`.
+            verification = None
+            if self._verifier is not None and spec.mutating and result.ok:
+                verification = await self._verifier.verify(
+                    principal, spec, arguments, result, self._call_for_verification
+                )
+                if note := getattr(verification, "note", ""):
+                    # Appended to the content the model reads. The write stands:
+                    # it executed, and turning it into a failure here would invite
+                    # a retry of something that already happened.
+                    result = result.model_copy(update={"content": result.content + note})
+
+            outcome = AuditOutcome.ALLOWED if result.ok else AuditOutcome.FAILED
+            if verification is not None and getattr(verification, "contradicted", False):
+                outcome = AuditOutcome.UNCONFIRMED
+
+            tracing.annotate(
+                current,
+                **{
+                    "uione.outcome": str(outcome),
+                    "uione.verification": str(getattr(verification, "verdict", "")) or None,
+                },
+            )
+
             record = await self._audit.record(
                 principal=principal,
                 server=spec.server,
                 tool=spec.qualified_name,
                 risk=spec.risk,
-                outcome=AuditOutcome.FAILED,
+                outcome=outcome,
                 arguments=arguments,
-                duration_ms=(self._clock() - started) * 1000,
-                detail=f"{type(exc).__name__}: {exc}",
-                correlation_id=correlation_id,
+                duration_ms=duration_ms,
+                detail=result.error or (getattr(verification, "detail", None) or None),
+                correlation_id=context.correlation_id or correlation_id,
+                verification=str(getattr(verification, "verdict", "")) or None,
             )
-            return GatewayCall(ToolResult.failure(f"{type(exc).__name__}: {exc}"), record)
-
-        duration_ms = (self._clock() - started) * 1000
-        if result.ok:
-            self._breaker.record_success(spec.server)
-        else:
-            self._breaker.record_failure(spec.server)
-
-        if self._governor is not None:
-            await self._governor.note_execution(principal, spec, arguments, result)
-
-        # Read-after-write (F2.6). Only successful mutations: a read needs no
-        # confirming, and a write that already reported failure needs a different
-        # question asked — see the known gap in `governance.verification`.
-        verification = None
-        if self._verifier is not None and spec.mutating and result.ok:
-            verification = await self._verifier.verify(
-                principal, spec, arguments, result, self._call_for_verification
-            )
-            if note := getattr(verification, "note", ""):
-                # Appended to the content the model reads. The write stands: it
-                # executed, and turning it into a failure here would invite a
-                # retry of something that already happened.
-                result = result.model_copy(update={"content": result.content + note})
-
-        outcome = AuditOutcome.ALLOWED if result.ok else AuditOutcome.FAILED
-        if verification is not None and getattr(verification, "contradicted", False):
-            outcome = AuditOutcome.UNCONFIRMED
-
-        record = await self._audit.record(
-            principal=principal,
-            server=spec.server,
-            tool=spec.qualified_name,
-            risk=spec.risk,
-            outcome=outcome,
-            arguments=arguments,
-            duration_ms=duration_ms,
-            detail=result.error or (getattr(verification, "detail", None) or None),
-            correlation_id=context.correlation_id or correlation_id,
-            verification=str(getattr(verification, "verdict", "")) or None,
-        )
-        return GatewayCall(result, record, verification=verification)
+            return GatewayCall(result, record, verification=verification)
 
     async def _call_for_verification(
         self, principal: Principal, tool: str, arguments: dict

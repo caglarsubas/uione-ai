@@ -58,7 +58,7 @@ python scripts/demo_brief.py --model ministral-3:8b
 | A2A: assistant collaboration with disclosure contracts | `src/uione/a2a/` |
 | Morning Brief with provenance, links and honest degradation | `src/uione/proactive/` |
 | HTTP API: chat, brief, approval queue, transparency page | `src/uione/api/` |
-| Prometheus metrics, aggregate-only and token-gated | `src/uione/observability/` |
+| Prometheus metrics and OTel tracing, aggregate-only | `src/uione/observability/` |
 
 Mail is a real IMAP/SMTP connector (configure `UIONE_MAIL_IMAP_HOST`, otherwise a
 fixture is used); calendar is real CalDAV (`UIONE_CALENDAR_URL`), read and write — it proposes meetings; tasks are real

@@ -34,8 +34,14 @@ from __future__ import annotations
 import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from uione.mcphub.audit import AuditRecord
+if TYPE_CHECKING:  # pragma: no cover
+    # Type-only, so this package has no *runtime* dependency on mcphub. The
+    # gateway imports `observability.tracing`, and a runtime import back the
+    # other way would make that a cycle resolved by import order — which works
+    # until somebody imports the two modules in the opposite sequence.
+    from uione.mcphub.audit import AuditRecord
 
 #: Label sets are tuples of (name, value) pairs, sorted, so the same labels in a
 #: different order are the same series.

@@ -35,6 +35,17 @@ class Settings(BaseSettings):
     #: because somebody forgot to set a variable is the wrong direction to fail.
     metrics_token: str = ""
 
+    #: OTLP/HTTP endpoint traces are exported to, e.g. http://tempo:4318/v1/traces.
+    #:
+    #: Empty disables tracing. There is deliberately no default: traces carry
+    #: tool names, model names and the timing of an entire organisation's work,
+    #: and the rule at the top of this file is that nothing may default to an
+    #: internet address. Needs the `otel` extra installed; without it a
+    #: configured endpoint logs a warning and tracing stays off rather than
+    #: failing the service.
+    otel_endpoint: str = ""
+    otel_service_name: str = "uione"
+
     # --- Model plane (llm_inference_engine, OpenAI-compatible) ---
     model_plane_url: str = Field(
         default="http://127.0.0.1:8080/v1",
