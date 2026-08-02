@@ -1,0 +1,73 @@
+{{- if .Values.scheduler.separate }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "uione.fullname" . }}-scheduler
+  labels:
+    {{- include "uione.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scheduler
+spec:
+  # One. Not configurable, and that is the feature.
+  #
+  # The scheduler assumes it is alone; two of them generate every brief twice
+  # and every employee gets duplicate mail. Exposing a replica count here would
+  # be handing an operator a footgun that looks like a scaling knob.
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: a rolling update briefly runs two schedulers,
+    # which is the exact thing the replica count above prevents.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "uione.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: scheduler
+  template:
+    metadata:
+      labels:
+        {{- include "uione.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: scheduler
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "uione.serviceAccountName" . }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: uione-scheduler
+          image: {{ include "uione.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          env:
+            {{- include "uione.env" . | nindent 12 }}
+            - name: UIONE_SCHEDULER_ENABLED
+              value: "true"
+          {{- include "uione.envFrom" . | nindent 10 }}
+          {{- include "uione.probes" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

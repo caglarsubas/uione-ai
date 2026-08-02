@@ -1,0 +1,35 @@
+UiOne AI {{ .Chart.AppVersion }} — release {{ .Release.Name }}
+
+  Profile      {{ if .Values.scheduler.separate }}distributed{{ else }}appliance (single pod){{ end }}
+  Database     {{ if eq (include "uione.isSqlite" .) "true" }}SQLite on a PersistentVolume{{ else }}PostgreSQL (from Secret {{ .Values.database.existingSecret }}){{ end }}
+  Web replicas {{ .Values.replicaCount }}{{ if .Values.scheduler.separate }}, scheduler 1 (fixed){{ end }}
+  Model plane  {{ .Values.modelPlane.url }}
+  Metrics      {{ if .Values.metrics.existingSecret }}on, token from Secret {{ .Values.metrics.existingSecret }}{{ else }}off — /metrics returns 404 until metrics.existingSecret is set{{ end }}
+  Tracing      {{ if .Values.tracing.endpoint }}{{ .Values.tracing.endpoint }}{{ else }}off{{ end }}
+
+Reach it:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "uione.fullname" . }} 8000:{{ .Values.service.port }}
+
+then open http://127.0.0.1:8000/
+
+{{ if not .Values.ingress.enabled }}
+No Ingress. The workspace is reachable inside the cluster only, which is the
+right default for a product whose whole premise is not being on the internet.
+{{- end }}
+
+Two things worth knowing before you scale this:
+
+* The probes use /health, not /ready. /ready reports 503 when the model plane is
+  unreachable, and as a readiness probe that empties the Service the moment a
+  *shared* dependency fails — turning a partial outage everyone can see into a
+  total one nobody can diagnose. Alert on /ready; do not probe with it.
+
+{{ if not .Values.scheduler.separate }}
+* This pod runs the scheduler in-process, so `replicaCount` above 1 would
+  generate every brief once per replica. The chart refuses that combination with
+  SQLite; on PostgreSQL, set scheduler.separate=true first.
+{{- else }}
+* The scheduler Deployment is pinned to one replica and uses the Recreate
+  strategy, because a rolling update would briefly run two of them.
+{{- end }}

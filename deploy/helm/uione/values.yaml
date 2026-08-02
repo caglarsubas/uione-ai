@@ -1,0 +1,146 @@
+# UiOne AI — Helm values.
+#
+# Two profiles, and the chart refuses the combinations that only appear to work.
+#
+#   appliance    (default)  one pod, SQLite on a PVC, scheduler in-process.
+#                           F12.2. Right for a PoC and for a single-node install.
+#
+#   distributed             PostgreSQL, N web replicas, and exactly one
+#                           scheduler pod. Set replicaCount > 1 or
+#                           scheduler.separate=true and supply a Postgres URL.
+#
+# Mixing them is refused at template time rather than at 03:00 — see the guards
+# in templates/_helpers.tpl.
+
+image:
+  repository: uione
+  tag: ""            # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# Web replicas. Above 1 requires PostgreSQL: SQLite is one writer on one
+# filesystem, and two pods sharing it over RWX is the classic way to get a
+# corrupt database that passes every health check until it does not.
+replicaCount: 1
+
+scheduler:
+  # Run the proactive engine in its own single-replica Deployment.
+  #
+  # Off in the appliance profile, where one pod does everything. On, it is
+  # pinned to exactly one replica and there is no value that changes that:
+  # OPERATIONS.md records that two schedulers generate every brief twice, and a
+  # chart that lets an operator set `scheduler.replicas: 3` has handed them that
+  # outage with a straight face.
+  separate: false
+
+database:
+  # SQLite by default. `file:` paths land on the PVC below.
+  url: "sqlite+aiosqlite:////data/uione.db"
+
+  # For PostgreSQL, put the whole URL in a Secret and name it here rather than
+  # in `url` — a connection string carries a password, and values.yaml ends up
+  # in Git, in `helm get values`, and in the release ConfigMap.
+  existingSecret: ""
+  existingSecretKey: "database-url"
+
+  # Run `alembic upgrade head` as a pre-install/pre-upgrade Job.
+  #
+  # This is why UIONE_DB_AUTO_UPGRADE stays off in the pods. Auto-upgrade on
+  # start means every replica races to migrate the same database; a Job runs
+  # once, before any pod starts, and a failed migration fails the release
+  # instead of half-migrating under live traffic.
+  migrateOnUpgrade: true
+
+modelPlane:
+  # No default that reaches the internet — the rule from config.py, enforced
+  # here too. Empty is refused at template time.
+  url: ""
+  apiKeySecret: ""
+  apiKeySecretKey: "api-key"
+
+persistence:
+  # The SQLite database, and the file share if you mount one.
+  enabled: true
+  size: 20Gi
+  storageClass: ""
+  # RWO is correct for the appliance profile and is *why* replicaCount > 1 is
+  # refused with SQLite: RWX would let it schedule and then corrupt.
+  accessMode: ReadWriteOnce
+  existingClaim: ""
+
+metrics:
+  # Bearer token for /metrics. Empty leaves the endpoint returning 404.
+  existingSecret: ""
+  existingSecretKey: "metrics-token"
+  # Emit a ServiceMonitor for the Prometheus Operator. Off by default because
+  # the CRD may not be installed, and a chart that fails on a missing CRD fails
+  # at the worst moment.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+
+tracing:
+  # OTLP/HTTP endpoint. Empty disables tracing. Needs an image built with the
+  # `otel` extra; without it the service logs and runs untraced.
+  endpoint: ""
+  serviceName: uione
+
+# Connector credentials and any other UIONE_* settings that are secret.
+# Referenced as a whole Secret so this chart never has to know their names.
+existingSecrets: []
+#  - name: uione-connectors
+#  - name: uione-oidc
+
+# Non-secret UIONE_* settings, verbatim.
+config:
+  UIONE_ENVIRONMENT: production
+  UIONE_LOG_LEVEL: INFO
+  UIONE_BRIEF_TIMEZONE: UTC
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  #  - host: uione.corp.example
+  #    paths:
+  #      - path: /
+  #        pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 2Gi
+
+# Defaults chosen to satisfy a restricted PodSecurity namespace without edits,
+# because "works only with the policy relaxed" is a conversation with a
+# platform team that delays every install.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}

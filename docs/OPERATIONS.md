@@ -67,9 +67,12 @@ know before they commit:
 
 * **No multi-tenancy.** One organisation per deployment. Permissions are
   per-user within it, but there is no tenant boundary above that.
-* **No high availability.** The scheduler assumes it is the only one running;
-  two replicas would both generate briefs. `UIONE_SCHEDULER_ENABLED=false` on
-  the extra replicas is the workaround, not a design.
+* **Partial high availability.** Web pods scale; the scheduler does not, and
+  must not — two of them generate every brief twice. The Helm chart now makes
+  that structural rather than a warning: a separate single-replica scheduler
+  Deployment, with no value that changes the count. See
+  [KUBERNETES.md](KUBERNETES.md). What is still missing is a leader election
+  that would let the scheduler itself be redundant.
 * **No per-user credentials.** Every connector authenticates with one service
   account per system, so a source system sees a single identity for all users
   and its own permissions cannot tell them apart (F3.2).

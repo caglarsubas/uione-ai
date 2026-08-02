@@ -112,6 +112,7 @@ is at `/system/health`.
 - [Retrieval](docs/RETRIEVAL.md) — permission-aware search, and why filtering must precede ranking.
 - [Evals](docs/EVALS.md) — including the language suite and what it measured. — the golden-task gate, current results, and the two failures it caught.
 - [Docker](docs/DOCKER.md) — `make up`, and what is deliberately not in the image.
+- [Kubernetes](docs/KUBERNETES.md) — the Helm chart, and the configurations it refuses to render.
 - [Operations](docs/OPERATIONS.md) — backup, restore, metrics, and what is still missing for production.
 - [Migrations](docs/MIGRATIONS.md) — upgrading a database that has data worth keeping.
 - [Storage](docs/STORAGE.md) — what durability protects, and how it was verified across processes.

@@ -1,0 +1,49 @@
+{{- if .Values.database.migrateOnUpgrade }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Release-revision suffixed: Jobs are immutable, so a second upgrade against
+  # a fixed name fails with "field is immutable" rather than migrating.
+  name: {{ include "uione.fullname" . }}-migrate-{{ .Release.Revision }}
+  labels:
+    {{- include "uione.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    # Before everything else in the release, so no pod ever starts against a
+    # schema it cannot run against.
+    "helm.sh/hook-weight": "-5"
+    # Kept on failure. A migration that fails is the one Job an operator needs
+    # the logs of, and hook-succeeded alone deletes it before they can look.
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        {{- include "uione.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "uione.serviceAccountName" . }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "uione.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command: ["python", "-m", "uione.storage.cli", "upgrade"]
+          env:
+            {{- include "uione.env" . | nindent 12 }}
+          {{- include "uione.envFrom" . | nindent 10 }}
+          volumeMounts:
+            {{- include "uione.volumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "uione.volumes" . | nindent 8 }}
+{{- end }}
