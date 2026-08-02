@@ -8,6 +8,12 @@ from uione.proactive.brief import (
     BriefSource,
     SectionResult,
 )
+from uione.proactive.queue import (
+    QueueBuilder,
+    QueueItem,
+    Urgency,
+    WorkQueue,
+)
 from uione.proactive.schedule import WEEKDAYS, JobKind, Schedule, ScheduledJob
 from uione.proactive.scheduler import BriefStore, Scheduler, SchedulerStats, StoredBrief
 from uione.proactive.weekly import (
@@ -18,6 +24,10 @@ from uione.proactive.weekly import (
 )
 
 __all__ = [
+    "WorkQueue",
+    "Urgency",
+    "QueueItem",
+    "QueueBuilder",
     "Movement",
     "WeeklyReport",
     "WeeklyReviewGenerator",

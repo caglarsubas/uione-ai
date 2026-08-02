@@ -13,6 +13,9 @@
 
     <button class="nav-btn" data-panel="brief" aria-selected="true">Today</button>
     <button class="nav-btn" data-panel="chat" aria-selected="false">Assistant</button>
+    <button class="nav-btn" data-panel="queue" aria-selected="false">
+      Queue <span class="badge" id="queue-count" data-count="0"></span>
+    </button>
     <button class="nav-btn" data-panel="approvals" aria-selected="false">
       Approvals <span class="badge" id="approval-count" data-count="0"></span>
     </button>
@@ -34,6 +37,22 @@
         <div class="meta-row" id="brief-meta"></div>
       </div>
       <button class="ghost" id="refresh-brief">Regenerate</button>
+    </section>
+
+    <!-- Queue -->
+    <section class="panel" id="panel-queue">
+      <div class="panel-head">
+        <div>
+          <h1>Awaiting you</h1>
+          <p class="subtitle">
+            Everything across your systems, most urgent first. One thing seen in
+            two systems is listed once.
+          </p>
+        </div>
+        <button class="ghost" id="refresh-queue">Refresh</button>
+      </div>
+      <div id="queue-notices"></div>
+      <div id="queue"><span class="spinner"></span></div>
     </section>
 
     <!-- Assistant -->

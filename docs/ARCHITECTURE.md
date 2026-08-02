@@ -8,7 +8,7 @@
 ┌───────────────────────────────────────────────────────────────┐
 │ uione (this repo)                                             │
 │                                                               │
-│  api/          FastAPI surface: chat, brief, action queue     │
+│  api/          FastAPI surface: chat, brief, queue, approvals │
 │  agent/        plan → act → verify runtime + reliability layer │
 │  mcphub/       MCP client host + governed gateway              │
 │  governance/   risk classes, approvals, audit, containment     │

@@ -200,3 +200,65 @@ called before they were defined — the file parsed, the container built, and th
 strip silently rendered empty. The check that caught it asserts every symbol the
 code references is declared somewhere in the file, which is the property that
 actually mattered.
+
+## The action queue (F6.3)
+
+Everything awaiting you, across every system, ranked. `GET /queue`.
+
+**No model runs behind it.** The brief is prose and costs a GPU call; this is a
+list of records and costs none. That is not an optimisation — it is the
+difference between a surface you open once a morning and one you leave open all
+day. It also means the queue cannot invent an item, misreport a state, or
+hallucinate a due date, which are precisely the three things
+[EVALS.md](EVALS.md) records models doing to this data.
+
+### What keeps it a queue rather than a second inbox
+
+Gap **G7** names the failure mode plainly: aggregate every system's
+notifications and you have built a worse inbox than the ones you replaced.
+
+**One thing seen twice is one row.** An incident that also produced a ticket
+appears once, with both sources named. Matching is on the identifier — the work
+graph's deterministic rule — not on similar-sounding titles, because guessing
+that two things are the same is how a queue starts hiding work.
+
+**It is capped.** Twenty rows. What was dropped is reported, so a short queue is
+never mistaken for a quiet one.
+
+**Every row says why.** Ranking is a rule, not a score: urgency band first, then
+oldest-first within it, because an item ignored for three days is likelier
+forgotten than deliberately deferred. "Why is this above that" always has an
+answer in words. A ranked list nobody can explain is one people stop trusting
+the first time its top item looks wrong to them.
+
+| Band | Meaning |
+|---|---|
+| blocking the assistant | Work already prepared, stopped one click short of done |
+| critical incident | A P1/P2 assigned to you |
+| assigned work | A ticket or incident that is yours |
+
+**Unread mail is deliberately absent.** An unread message is not necessarily an
+action, and a queue that lists every unread mail has become the inbox it was
+meant to replace. Mail earns a place when a connector can answer *which messages
+await a reply* — a real question nobody has answered yet.
+
+### What it required
+
+The connectors returned rendered text, not structured rows, which is why
+[brief.py](../src/uione/proactive/brief.py) builds its work graph at *section*
+granularity and says so. A per-item queue needed per-item data, so
+`tasks.my_open_issues` and `incidents.my_incidents` now return an `items` array
+alongside the prose. The prose stays, because it is what the *model* reads;
+parsing it back into rows would be a second, divergent representation of the
+same call.
+
+That also moves F8.4 — record-granular entity resolution — from blocked to
+merely unbuilt.
+
+### Colour
+
+The queue count in the sidebar is **not** amber, and the left edge of a held
+action **is**. [DESIGN.md](../DESIGN.md) permits amber in exactly three places
+and one of them is the left edge of a held action; "how many things await you"
+is ordinary work rather than consequence, and a second amber number in the same
+sidebar would spend the signature on nothing.

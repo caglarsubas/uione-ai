@@ -53,7 +53,8 @@ python scripts/demo_brief.py --model ministral-3:8b
 | Real MCP client over stdio, with third-party servers governed by our policy | `src/uione/mcphub/` |
 | Durable audit, approvals, undo journal, autonomy, schedules, contracts and documents | `src/uione/storage/` |
 | Scheduler: briefs pre-generated ahead of the working day | `src/uione/proactive/` |
-| Web workspace: brief, chat, Approval Center, transparency page | `src/uione/web/` |
+| Web workspace: brief, chat, action queue, Approval Center, transparency page | `src/uione/web/` |
+| Unified action queue: cross-system, deduplicated, ranked, no model call | `src/uione/proactive/queue.py` |
 | Identity: OIDC bearer validation, fail-closed auth | `src/uione/identity/` |
 | A2A: assistant collaboration with disclosure contracts | `src/uione/a2a/` |
 | Morning Brief with provenance, links and honest degradation | `src/uione/proactive/` |
