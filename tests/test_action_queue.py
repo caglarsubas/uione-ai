@@ -24,7 +24,13 @@ from uione.proactive import QueueBuilder, Urgency
 ALICE = Principal(user_id="alice", roles=frozenset({"analyst"}))
 
 POLICY = ToolPolicy(
-    [Grant(role="analyst", tools=frozenset({"tasks.*", "incidents.*"}), max_risk=RiskClass.READ)]
+    [
+        Grant(
+            role="analyst",
+            tools=frozenset({"tasks.*", "incidents.*", "mail.*"}),
+            max_risk=RiskClass.READ,
+        )
+    ]
 )
 
 TICKET = {
@@ -153,13 +159,24 @@ async def test_a_long_queue_is_capped_and_says_so() -> None:
     assert queue.dropped == 25
 
 
-async def test_unread_mail_is_not_in_the_queue() -> None:
-    """An unread message is not necessarily an action, and a queue that lists
-    every unread mail has become the inbox it was meant to replace."""
-    mail = source("mail", "list_unread", [{"key": "42", "title": "Lunch?"}])
-    queue = await build(mail, source("tasks", "my_open_issues", [TICKET]))
+async def test_the_queue_shows_only_the_mail_the_connector_selected() -> None:
+    """The filtering lives in the connector, not here, because only it knows who
+    the account holder is and which headers a message carried.
 
-    assert [i.key for i in queue.items] == ["uione/payments#3"]
+    This test used to assert mail never reached the queue at all, and it passed
+    for the wrong reason: the policy in this module did not grant `mail.*`, so
+    the source was denied rather than empty. Granting it is what surfaced the
+    staleness — a stale test that passes is invisible until something changes
+    underneath it.
+    """
+    selected = {"key": "42", "title": "Can you confirm the settlement window?"}
+    queue = await build(
+        source("mail", "list_unread", [selected]),
+        source("tasks", "my_open_issues", [TICKET]),
+    )
+
+    assert {i.key for i in queue.items} == {"42", "uione/payments#3"}
+    assert next(i for i in queue.items if i.key == "42").urgency is Urgency.AWAITING_REPLY
 
 
 # -- honest degradation ----------------------------------------------------
@@ -232,3 +249,69 @@ async def test_the_api_shape_carries_what_a_client_needs(field: str) -> None:
     queue = await build(source("tasks", "my_open_issues", [TICKET]))
 
     assert field in queue.to_dict()["items"][0]
+
+
+# -- mail, and why most of it stays out ------------------------------------
+
+
+def message(**kwargs):
+    from datetime import UTC, datetime
+
+    from uione.connectors.mail.message import MailMessage
+
+    defaults = {
+        "uid": "1",
+        "subject": "Can you confirm the settlement window?",
+        "from_address": "bora@corp.example",
+        "to": ["alice@corp.example"],
+        "date": datetime(2026, 7, 27, 9, 0, tzinfo=UTC),
+        "unread": True,
+    }
+    return MailMessage(**{**defaults, **kwargs})
+
+
+def awaits(msg, address: str = "alice@corp.example") -> bool:
+    from uione.connectors.mail.source import awaits_reply
+
+    return awaits_reply(msg, address)
+
+
+def test_a_direct_unread_question_awaits_a_reply() -> None:
+    assert awaits(message())
+
+
+def test_being_copied_is_not_being_asked() -> None:
+    """The condition doing most of the work. Being copied is how you are told
+    something; being addressed is how you are asked something."""
+    assert not awaits(message(to=["bora@corp.example"], cc=["alice@corp.example"]))
+
+
+def test_a_read_message_awaits_nothing() -> None:
+    assert not awaits(message(unread=False))
+
+
+def test_bulk_mail_stays_out_however_it_is_addressed() -> None:
+    assert not awaits(message(bulk=True))
+
+
+def test_without_an_account_address_nothing_qualifies() -> None:
+    """ "Addressed to you" is unanswerable without an identity, and answering it
+    "yes" anyway would put the entire mailbox in the queue."""
+    assert not awaits(message(), address="")
+
+
+def test_the_comparison_ignores_case_and_padding() -> None:
+    assert awaits(message(to=["  Alice@Corp.Example "]))
+
+
+async def test_mail_reaches_the_queue_in_its_own_band() -> None:
+    row = {"key": "42", "title": "Can you confirm the settlement window?"}
+    queue = await build(
+        source("mail", "list_unread", [row]),
+        source("incidents", "my_incidents", [INCIDENT]),
+    )
+
+    mail_item = next(i for i in queue.items if i.key == "42")
+    assert mail_item.urgency is Urgency.AWAITING_REPLY
+    # And it sits below the P1, because a live incident outranks a question.
+    assert queue.items[0].key == "INC0010001"

@@ -37,7 +37,53 @@ def _clamp(value: object, default: int = DEFAULT_LIMIT) -> int:
     return max(1, min(requested, MAX_LIMIT))
 
 
-def build_mail_source(backend: MailBackend, *, name: str = "mail") -> InMemoryToolSource:
+def awaits_reply(message, account_address: str) -> bool:
+    """Whether this message is plausibly waiting on a reply from *this* person.
+
+    The action queue asks connectors "what is awaiting me", and for a mailbox
+    that is a genuinely hard question with no header that answers it. What
+    follows is a rule, not a model, and it is deliberately **narrow**: a queue
+    that lists every unread message has become the inbox it was meant to
+    replace (G7), and one that lists too few is merely incomplete in a way the
+    user can see and correct by opening their mail.
+
+    Three conditions, all required:
+
+    **Unread.** Necessary and nowhere near sufficient.
+
+    **Addressed to you directly.** In ``To:``, not merely ``Cc:``. Being copied
+    is how you are told something; being addressed is how you are asked
+    something. This is the condition doing most of the work, and it is the one
+    that keeps a busy mailbox's queue short.
+
+    **Not bulk.** Read from the headers a sender is obliged to set, never from
+    matching ``no-reply`` in an address — see :func:`is_bulk`.
+
+    What this deliberately does *not* do is read the body looking for a question
+    mark, or ask a model whether it sounds like a request. Both would be
+    guessing, both would be wrong in ways nobody could predict from the rule, and
+    a queue whose membership cannot be explained in one sentence is one people
+    stop trusting the first time it surprises them.
+
+    Its known blind spot, stated rather than discovered later: a message in a
+    thread you are already part of, sent to a group alias rather than to you, is
+    missed. Catching that needs thread state the connector does not keep.
+    """
+    if not message.unread or getattr(message, "bulk", False):
+        return False
+
+    if not account_address:
+        # No identity to compare against, so "addressed to you" is unanswerable.
+        # Answering it anyway with "yes" would put the whole mailbox in the queue.
+        return False
+
+    wanted = account_address.strip().lower()
+    return any(wanted == str(address).strip().lower() for address in (message.to or []))
+
+
+def build_mail_source(
+    backend: MailBackend, *, name: str = "mail", account_address: str = ""
+) -> InMemoryToolSource:
     source = InMemoryToolSource(name)
 
     async def list_unread(args: dict) -> ToolResult:
@@ -58,6 +104,20 @@ def build_mail_source(backend: MailBackend, *, name: str = "mail") -> InMemoryTo
                 # without parsing prose, which is what lets `mark_read` be
                 # verified by absence (F2.6).
                 "uids": [m.uid for m in messages],
+                # Structured rows, and only the ones plausibly awaiting a reply.
+                # The full list stays in the prose and in `uids`; this is the
+                # subset a queue should show. See `awaits_reply`.
+                "items": [
+                    {
+                        "key": m.uid,
+                        "title": m.subject or "(no subject)",
+                        "from": m.sender_display,
+                        "external": m.external,
+                        "updated_at": m.date.isoformat() if m.date else None,
+                    }
+                    for m in messages
+                    if awaits_reply(m, account_address)
+                ],
             },
         )
 
