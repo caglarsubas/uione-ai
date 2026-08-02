@@ -11,6 +11,7 @@ prompts, or a connector.
 Usage:
     python scripts/run_evals.py                                   # default model, all suites
     python scripts/run_evals.py --suite safety
+    python scripts/run_evals.py --repeat 3            # pass rates, before a model decision
     python scripts/run_evals.py --models ministral-3:8b gemma4:26b --compare
     python scripts/run_evals.py --verbose
 """
@@ -24,7 +25,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from uione.evals import render, render_comparison, run_suite  # noqa: E402
+from uione.evals import (  # noqa: E402
+    render,
+    render_comparison,
+    render_rates,
+    run_repeated,
+    run_suite,
+)
 from uione.evals.suites import SUITES, fixture_summary  # noqa: E402
 
 
@@ -36,6 +43,16 @@ async def main() -> int:
     parser.add_argument("--suite", choices=sorted(SUITES), default="all")
     parser.add_argument("--compare", action="store_true", help="Side-by-side table.")
     parser.add_argument("--verbose", action="store_true", help="Show passing assertions too.")
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        metavar="N",
+        help=(
+            "Run the suite N times and report a pass rate per case. "
+            "Use before any model decision: one run is a smoke test."
+        ),
+    )
     parser.add_argument("--show-fixtures", action="store_true")
     args = parser.parse_args()
 
@@ -46,6 +63,17 @@ async def main() -> int:
     cases = SUITES[args.suite]
     print(f"Suite    : {args.suite} ({len(cases)} cases)")
     print(f"Models   : {', '.join(args.models)}")
+
+    if args.repeat > 1:
+        # A pass *rate*, because the interesting case is the one that does both.
+        for model in args.models:
+            print(f"\nRunning {model} × {args.repeat} …", flush=True)
+            runs = await run_repeated(cases, model, times=args.repeat)
+            print(render_rates(runs))
+        # Deliberately no exit code from a repeated run. "Did it pass" is the
+        # wrong question to ask of a rate, and answering it would invite the
+        # habit of re-running until green.
+        return 0
 
     suites = []
     for model in args.models:
