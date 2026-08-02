@@ -1,0 +1,24 @@
+apiVersion: v2
+name: uione
+description: UiOne AI — on-premise, open-weight, MCP-native enterprise assistant
+type: application
+
+# The chart's own version. Bumped when the templates change.
+version: 0.1.0
+
+# Tracks the application. Overridden per release with --set image.tag.
+appVersion: "0.1.0"
+
+kubeVersion: ">=1.25.0-0"
+
+keywords:
+  - assistant
+  - on-premise
+  - air-gap
+  - mcp
+
+# No dependencies, deliberately. A `dependencies:` block sends `helm dep update`
+# to a chart repository over the internet, which is the one thing an air-gapped
+# install cannot do — and it would arrive as a failure during the customer's
+# deployment rather than during ours. PostgreSQL is expected to already exist;
+# see values.yaml.

@@ -38,6 +38,32 @@ jobs:
       - name: Test
         run: pytest -q
 
+  # A chart that renders is not a chart that deploys. This job exists for the
+  # refusals: the configurations that schedule cleanly, pass every probe, and
+  # are quietly broken — SQLite shared by three replicas, two schedulers sending
+  # everyone their brief twice. Kubernetes cannot see any of that, so it has to
+  # be caught at `helm template` time, which means it has to be caught here.
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Lint the chart
+        run: helm lint deploy/helm/uione --set modelPlane.url=http://engine:8080/v1
+
+      - name: The guards have to refuse, and the profiles have to render
+        run: |
+          python -m pip install --quiet pytest pyyaml
+          python -m pytest -q tests/test_helm_chart.py
+
   # The job that would have caught a `pyproject.toml` which could not build a
   # wheel at all. `pip install -e` never builds one, so the packaging was
   # broken for weeks while every test passed.

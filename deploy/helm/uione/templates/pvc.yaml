@@ -1,0 +1,23 @@
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "uione.fullname" . }}-data
+  labels:
+    {{- include "uione.labels" . | nindent 4 }}
+  annotations:
+    # Survives `helm uninstall`. The claim holds the SQLite database — the audit
+    # log, the approvals, the undo journal — and deleting an audit trail as a
+    # side effect of removing a release is not a thing this chart will do
+    # quietly. Remove it by hand when you mean it.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+{{- end }}

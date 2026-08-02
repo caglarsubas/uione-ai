@@ -51,6 +51,10 @@ dev = [
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",
     "opentelemetry-instrumentation-fastapi>=0.48b0",
+    # Reads what `helm template` rendered, in tests/test_helm_chart.py. Those
+    # tests skip when the helm binary is absent; this is only so they can parse
+    # its output when it is not.
+    "pyyaml>=6.0",
 ]
 postgres = [
     "asyncpg>=0.30",

@@ -1,0 +1,71 @@
+{{- include "uione.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "uione.fullname" . }}
+  labels:
+    {{- include "uione.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "uione.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        {{- include "uione.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: web
+      annotations:
+        # Rolls the pods when non-secret configuration changes. Without this a
+        # `helm upgrade` that only edits config leaves every pod running the
+        # old values and reports success.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "uione.serviceAccountName" . }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: uione
+          image: {{ include "uione.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          env:
+            {{- include "uione.env" . | nindent 12 }}
+            # In the appliance profile this pod is also the scheduler. When the
+            # scheduler runs separately it must be off here, or every replica
+            # generates the same briefs.
+            - name: UIONE_SCHEDULER_ENABLED
+              value: {{ not .Values.scheduler.separate | quote }}
+          {{- include "uione.envFrom" . | nindent 10 }}
+          {{- include "uione.probes" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "uione.volumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "uione.volumes" . | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

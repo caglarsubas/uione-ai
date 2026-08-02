@@ -1,0 +1,24 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "uione.fullname" . }}
+  labels:
+    {{- include "uione.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "uione.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      # /metrics is 404 without a token and 401 with the wrong one — see
+      # docs/OPERATIONS.md. The Secret named here is the same one the pods read.
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ .Values.metrics.existingSecret }}
+          key: {{ .Values.metrics.existingSecretKey }}
+{{- end }}
