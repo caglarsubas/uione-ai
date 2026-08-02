@@ -304,11 +304,72 @@ async def test_success_resets_the_breaker(sink: InMemoryAuditSink) -> None:
     assert sink.records[-1].outcome is AuditOutcome.FAILED
 
 
-async def test_server_health_reports_degradation(sink: InMemoryAuditSink) -> None:
-    breaker = CircuitBreaker(failure_threshold=1)
-    gateway = await build_gateway(sink, source=build_source(fail=True), breaker=breaker)
+async def test_an_uncalled_connector_is_unknown_not_ok(sink: InMemoryAuditSink) -> None:
+    """This assertion used to read `== {"mail": "ok"}`, and that was the bug.
+
+    Health was derived from the circuit breaker, which is a question about our
+    retry policy rather than about the connector. A server nobody had called
+    reported healthy; so did one that had failed four times, because the breaker
+    opens on the fifth. A live deployment showed three connectors failing in the
+    UI while /system/health returned all-green with `degraded: []`.
+
+    "ok" is a claim that the last call succeeded. Absent a call, there is no
+    claim to make.
+    """
+    gateway = await build_gateway(sink, source=build_source(fail=True))
+
+    assert gateway.server_health() == {"mail": "unknown"}
+    # And unknown is not degraded — a connector nobody uses is unexercised, not
+    # broken, and listing it would put a permanent warning on every deployment.
+    assert list(gateway.degraded_servers()) == []
+
+
+async def test_the_first_failure_is_visible_not_the_fifth(sink: InMemoryAuditSink) -> None:
+    """The beginning of an outage is the only part a health endpoint is for."""
+    gateway = await build_gateway(sink, source=build_source(fail=True))
+
+    await gateway.call(ALICE, "mail.search")
+
+    assert gateway.server_health() == {"mail": "failing"}
+    assert list(gateway.degraded_servers()) == ["mail"]
+    assert gateway.server_details()["mail"]["consecutive_failures"] == 1
+
+
+async def test_the_reason_travels_with_the_status(sink: InMemoryAuditSink) -> None:
+    """ "tasks is failing" sends somebody to read logs; "tasks is failing: gitea
+    unreachable" sends them to start gitea."""
+    gateway = await build_gateway(sink, source=build_source(fail=True))
+
+    await gateway.call(ALICE, "mail.search")
+
+    assert "unavailable" in (gateway.server_details()["mail"]["last_error"] or "")
+
+
+async def test_recovery_clears_the_failure(sink: InMemoryAuditSink) -> None:
+    source = InMemoryToolSource("mail")
+    state = {"fail": True}
+
+    async def flaky(_args: dict) -> ToolResult:
+        return ToolResult.failure("down") if state["fail"] else ToolResult.success("up")
+
+    source.register("search", flaky, risk=RiskClass.READ)
+    gateway = await build_gateway(sink, source=source)
+
+    await gateway.call(ALICE, "mail.search")
+    assert gateway.server_health() == {"mail": "failing"}
+
+    state["fail"] = False
+    await gateway.call(ALICE, "mail.search")
 
     assert gateway.server_health() == {"mail": "ok"}
+    assert gateway.server_details()["mail"]["last_error"] is None
+
+
+async def test_a_breaker_that_gave_up_says_unavailable(sink: InMemoryAuditSink) -> None:
+    """Distinct from `failing`: we have stopped trying, so the next call will not
+    even reach the connector."""
+    breaker = CircuitBreaker(failure_threshold=1)
+    gateway = await build_gateway(sink, source=build_source(fail=True), breaker=breaker)
 
     await gateway.call(ALICE, "mail.search")
 

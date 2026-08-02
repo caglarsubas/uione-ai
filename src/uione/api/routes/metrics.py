@@ -56,6 +56,16 @@ async def metrics(
     # Gauges are read at scrape time rather than pushed, so they cannot go stale
     # between a change and the next scrape.
     for server, state in services.gateway.server_health().items():
+        if state == "unknown":
+            # No series at all rather than a 1. This gauge shipped reading from
+            # the circuit breaker, so it reported a *dead* connector as up for
+            # the first four failures of an outage — and would have reported one
+            # nobody had ever called as up forever.
+            #
+            # Absent is the honest encoding: `uione_connector_up == 0` should
+            # page, and "never exercised" is not an outage. Prometheus has
+            # `absent()` for asking the other question.
+            continue
         registry.connector_up.set(1 if state == "ok" else 0, server=server)
 
     gate = getattr(services.model, "gate", None)
