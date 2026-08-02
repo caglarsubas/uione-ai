@@ -44,6 +44,13 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.7",
     "respx>=0.21",
+    # The tracing extra, so CI exercises the *instrumented* path as well as the
+    # no-op one. Without this every span in the tree would be a no-op in every
+    # test run, and "it does nothing when OTel is absent" would be the only
+    # thing ever verified.
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
 ]
 postgres = [
     "asyncpg>=0.30",
