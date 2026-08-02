@@ -195,6 +195,26 @@ class ServiceNowIncidents:
 # -- rendering -------------------------------------------------------------
 
 
+def queue_row(record: dict) -> dict:
+    """One incident as a structured row.
+
+    Carries both the machine value and the label for state and priority, for the
+    same reason every read here does: an instance's display mode is a
+    configuration setting, a caller that ranks must compare values, and a caller
+    that renders must show labels. Giving it one of the two guarantees the other
+    gets reconstructed wrongly somewhere.
+    """
+    return {
+        "key": field_value(record.get("number")),
+        "title": record.get("short_description") or "(no description)",
+        "state": field_value(record.get("state")),
+        "state_label": field_label(record.get("state"), STATE_LABELS),
+        "priority": field_value(record.get("priority")),
+        "priority_label": field_label(record.get("priority")),
+        "updated_at": field_value(record.get("sys_updated_on")),
+    }
+
+
 def render_incident(record: dict) -> str:
     number = field_value(record.get("number")) or "INC?"
     state = field_label(record.get("state"), STATE_LABELS)
@@ -255,6 +275,10 @@ def build_servicenow_source(
                 # The machine values, so a caller can rank without reparsing
                 # labels that an instance may have renamed.
                 "priorities": [field_value(r.get("priority")) for r in records],
+                # Structured rows for callers that need records rather than
+                # prose — the work queue above all. The prose stays because it
+                # is what the *model* reads.
+                "items": [queue_row(r) for r in records],
             },
         )
 

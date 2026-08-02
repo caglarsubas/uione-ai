@@ -24,7 +24,7 @@ from uione.api.deps import Services, default_schedule, get_principal, get_servic
 from uione.config import get_settings
 from uione.mcphub import Principal
 from uione.modelplane import ChatMessage
-from uione.proactive import JobKind, Schedule, ScheduledJob
+from uione.proactive import JobKind, QueueBuilder, Schedule, ScheduledJob
 
 log = structlog.get_logger(__name__)
 
@@ -330,6 +330,22 @@ async def brief(
         model=result.model,
         notice=result.error,
     )
+
+
+@router.get("/queue")
+async def action_queue(
+    principal: Principal = Depends(get_principal),
+    services: Services = Depends(get_services),
+) -> dict:
+    """Everything awaiting this person, ranked (F6.3).
+
+    No model call, so it is cheap enough to poll — which is what makes it a
+    surface you leave open rather than one you request. See
+    `uione.proactive.queue`.
+    """
+    approvals = await services.governor.approvals.pending_for(principal)
+    queue = await QueueBuilder(services.gateway).build(principal, approvals=approvals)
+    return queue.to_dict()
 
 
 @router.get("/approvals", response_model=list[PendingActionView])

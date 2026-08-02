@@ -205,7 +205,25 @@ def build_tasks_source(*, fail: bool = False) -> InMemoryToolSource:
             f"    {t['title']}"
             for t in TASKS
         )
-        return ToolResult.success(rendered, {"count": len(TASKS)})
+        return ToolResult.success(
+            rendered,
+            {
+                "count": len(TASKS),
+                # Structured rows, same contract the real connectors carry, so
+                # the action queue is populated on a fresh checkout. A demo
+                # estate whose flagship surface is empty teaches the wrong thing
+                # about the product (G14).
+                "items": [
+                    {
+                        "key": t["key"],
+                        "title": t["title"],
+                        "state": t["status"],
+                        "updated_at": t["updated"],
+                    }
+                    for t in TASKS
+                ],
+            },
+        )
 
     async def update_issue(args: dict) -> ToolResult:
         return ToolResult.success(f"{args.get('key')} updated")
@@ -245,7 +263,26 @@ def build_incidents_source(*, fail: bool = False) -> InMemoryToolSource:
             f"owner {i['owner']}\n    {i['title']}\n    {i['note']}"
             for i in INCIDENTS
         )
-        return ToolResult.success(rendered, {"count": len(INCIDENTS)})
+        return ToolResult.success(
+            rendered,
+            {
+                "count": len(INCIDENTS),
+                "items": [
+                    {
+                        "key": i["id"],
+                        "title": i["title"],
+                        "state": i["status"],
+                        # The fixture states severity as P1/P2; the queue ranks
+                        # on the ServiceNow-shaped numeric priority, so it is
+                        # translated here rather than the queue learning a
+                        # second vocabulary.
+                        "priority": i["severity"].lstrip("P"),
+                        "updated_at": i["opened"],
+                    }
+                    for i in INCIDENTS
+                ],
+            },
+        )
 
     source.register("active", active, description="List active incidents.", risk=RiskClass.READ)
     return source

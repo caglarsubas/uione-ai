@@ -523,6 +523,88 @@ $("#composer").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
 });
 
+/* ---- queue ---- */
+
+// No model call behind this, so refreshing is cheap — which is what makes it a
+// surface you leave open rather than one you request.
+//
+// Built with el() like everything else here, never innerHTML: these titles come
+// from vendor systems, which is to say from whoever can file a ticket. The whole
+// product treats connector output as untrusted, and the UI is not the place to
+// stop.
+async function loadQueue() {
+  const container = $("#queue");
+  const notices = $("#queue-notices");
+  const queue = await api("/queue");
+
+  const badge = $("#queue-count");
+  badge.textContent = queue.items.length || "";
+  badge.dataset.count = String(queue.items.length);
+
+  notices.innerHTML = "";
+  // A short queue must never be mistaken for a quiet one.
+  if (!queue.complete) {
+    notices.append(
+      notice("warn", "This list is incomplete.", `Could not reach ${queue.unavailable.join(", ")}.`),
+    );
+  }
+  if (queue.dropped) {
+    notices.append(
+      notice("info", `${queue.dropped} more not shown.`, "A queue you cannot finish is a backlog."),
+    );
+  }
+
+  container.innerHTML = "";
+  if (!queue.items.length) {
+    container.append(el("div", "empty", "Nothing is waiting on you."));
+    return;
+  }
+
+  for (const item of queue.items) {
+    const card = el("div", "card queue-item");
+    card.dataset.urgency = item.urgency;
+
+    const head = el("div", "card-head");
+    head.append(el("div", "card-title", item.key));
+    if (item.cross_system) {
+      // The dedup, made visible. One incident that also produced a ticket is
+      // one row, and the row says so rather than quietly hiding the second.
+      head.append(chip("linked", item.sources.join(" + ")));
+    } else {
+      head.append(chip("", item.sources[0] || ""));
+    }
+    card.append(head);
+
+    if (item.url) {
+      const link = el("a", "queue-title", item.title);
+      link.href = item.url;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      card.append(link);
+    } else {
+      card.append(el("div", "queue-title", item.title));
+    }
+
+    // Every row says why it is here. A ranked list nobody can explain is one
+    // people stop trusting the first time its top item looks wrong to them.
+    card.append(el("div", "reason", item.reason));
+
+    if (item.action_id) {
+      const actions = el("div", "actions");
+      const review = el("button", "approve", "Review in Approvals");
+      review.addEventListener("click", () => {
+        document.querySelector('.nav-btn[data-panel="approvals"]').click();
+      });
+      actions.append(review);
+      card.append(actions);
+    }
+
+    container.append(card);
+  }
+}
+
+$("#refresh-queue").addEventListener("click", () => loadQueue());
+
 /* ---- approvals ---- */
 
 async function loadApprovals() {
@@ -678,6 +760,7 @@ async function loadSystems() {
 
 const REFRESH = {
   brief: () => loadBrief(),
+  queue: loadQueue,
   approvals: loadApprovals,
   autonomy: loadAutonomy,
   systems: loadSystems,

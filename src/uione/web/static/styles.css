@@ -412,3 +412,43 @@ td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
 }
 
 .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+
+/* ---- action queue ---- */
+
+/* The queue count is NOT amber, and that is deliberate.
+   DESIGN.md permits amber in exactly three places and the approvals count is one
+   of them; "how many things await you" is ordinary work rather than consequence,
+   and a second amber number in the same sidebar would spend the signature on
+   nothing. It stays faint like every other count. */
+#queue-count[data-count]:not([data-count="0"]):not([data-count=""]) {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+/* Urgency is a left edge, not a colour wash. DESIGN.md: a saturated pixel means
+   something changed a real system or is on fire — a queue row is neither, so the
+   band is weight and position rather than hue. The one exception is the
+   assistant waiting on you, which is amber for the same reason the approvals
+   count is: it is a held action. */
+.queue-item {
+  border-left: 3px solid var(--border);
+  padding-left: 0.9rem;
+}
+.queue-item[data-urgency="blocking the assistant"] {
+  border-left-color: var(--hold);
+}
+.queue-item[data-urgency="critical incident"] {
+  border-left-color: var(--text);
+}
+.queue-title {
+  display: block;
+  margin: 0.15rem 0 0.35rem;
+  font-size: 0.95rem;
+}
+a.queue-title {
+  color: inherit;
+  text-decoration: none;
+}
+a.queue-title:hover {
+  text-decoration: underline;
+}

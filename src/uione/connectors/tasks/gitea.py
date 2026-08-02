@@ -133,6 +133,24 @@ def issue_key(issue: dict) -> str:
     return f"{full_name}#{issue.get('number')}"
 
 
+def queue_row(issue: dict) -> dict:
+    """One issue as a structured row.
+
+    The fields are the ones a queue needs to rank and render without a second
+    call: what it is, where it is, how stale, and where to click. Deliberately
+    not the body — a queue is a list of titles, and a caller that wants the
+    description asks for the issue.
+    """
+    return {
+        "key": issue_key(issue),
+        "title": issue.get("title") or "(no title)",
+        "state": issue.get("state"),
+        "updated_at": issue.get("updated_at"),
+        "url": issue.get("html_url"),
+        "comments": issue.get("comments", 0),
+    }
+
+
 def render_issue(issue: dict) -> str:
     parts = [f"{issue_key(issue)} — {issue.get('title', '(no title)')} [{issue.get('state')}]"]
     if labels := [label["name"] for label in issue.get("labels") or []]:
@@ -199,6 +217,13 @@ def build_gitea_source(
             {
                 "count": len(issues),
                 "keys": [issue_key(i) for i in issues],
+                # Structured rows alongside the rendered text, for callers that
+                # need records rather than prose — the work queue, and the work
+                # graph when it moves from section to record granularity (F8.4).
+                # The prose stays because it is what the *model* reads; parsing
+                # it back into rows would be a second, divergent representation
+                # of the same call.
+                "items": [queue_row(i) for i in issues],
                 "fetched_at": datetime.now(UTC).isoformat(),
             },
         )
