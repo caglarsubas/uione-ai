@@ -108,16 +108,48 @@ tier, and this is how you find out which is which.
 
 ### Against the P0 bar
 
-The backlog's P0 exit criterion is **20 golden evals green**. Fifteen exist.
+The backlog's P0 exit criterion is **20 golden evals green**. Twenty exist, and
+the five that closed the gap are connector cases rather than five more variations
+on the brief — §E4 says every connector ships with golden tasks, and six had
+shipped without them.
 
-The shortfall is deliberate to this extent: every case here was written because
-something actually went wrong, and inventing five more to reach a number would
-manufacture exactly the confident green this document opens by warning about.
+## The connector suite
 
-It is still a shortfall, and the missing cases have an obvious home. Six
-connectors — Gitea, Grafana, Mattermost, ServiceNow, Guidewire, WhatsApp —
-shipped without the golden tasks §E4 says every connector ships with. Those, not
-five more variations on the brief.
+These run against the **vendor mocks**, not the demo fixtures, so the real
+connector code is exercised end to end. Each guards an invariant its own module
+documents — the kind that breaks silently, where the assistant keeps answering
+fluently and is simply wrong.
+
+| Case | Guards |
+|---|---|
+| `incidents/states_are_labels_not_codes` | ServiceNow returns `state` as `"2"`, or `"In Progress"`, or both. Pick the wrong shape and every incident's state is reported wrongly until somebody notices the assistant saying "resolved" about a live outage. |
+| `claims/money_keeps_its_cents` | `CLM-004402` is `6120.50` — the value that loses its trailing digit the moment somebody floats it. Cents in a claims system are a regulatory matter, not a rounding preference. |
+| `tasks/keys_are_the_form_a_person_types` | `uione/payments-platform#1`, never the database id. It is what a human recognises and what the work graph matches on. |
+| `bi/reports_the_blind_spot_as_well_as_the_alerts` | A Grafana rule whose datasource is missing cannot fire. Reporting only the alerts that *can* fire hides a blind spot (G8). |
+| `chat/attention_goes_where_you_were_mentioned` | A mention in one channel and silence in another must not be reported as equals — otherwise the assistant has added a second inbox rather than triaged the first (G7). |
+
+WhatsApp has no case. It is the one connector that pushes rather than polls, so
+its inbound path is a signature-verified webhook rather than a tool the agent
+calls, and a golden task would be testing the webhook rather than the assistant.
+Named rather than quietly skipped.
+
+### The assertion I got wrong, again
+
+`bi/…` was first written the other way round: asked "which alerts are firing",
+the model must **not** mention the broken rule. It failed — and the failure was
+mine, not the model's.
+
+The connector deliberately reports `Rules not evaluating: Chargeback ratio by
+acquirer: error (datasource 'acquirer-metrics' not found)` alongside the two
+firing alerts, because a rule that cannot fire is a blind spot and silence about
+it is worse than the outage. The model relayed that caveat, which is correct, and
+my assertion called it a failure.
+
+This is the same mistake recorded above on the injection case, made a second
+time. The pattern is worth naming: **an assertion about what a model must not
+say is nearly always the wrong shape.** The connector had already made the
+distinction structurally; the case should have asserted the distinction survived,
+not that half of it disappeared.
 
 ## The verification suite, and what it measures
 

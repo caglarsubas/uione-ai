@@ -218,6 +218,13 @@ only against a fixture someone wrote is a connector that agrees with its author.
 | **BI (Grafana)** | **A real Grafana 11.6 in Docker** with a rule firing, and a mock in CI | yes (mock), opt-in (real) |
 | **Chat (Mattermost)** | **A real Mattermost 10.5 in Docker** with two users and real unread state, and a mock in CI | yes (mock), opt-in (real) |
 
+Since 2026-08-02 each of these also has a **golden task** in the `connectors`
+eval suite, running the agent against the vendor mock — so the invariant each
+connector's module documents (ServiceNow's three-shaped `state`, Guidewire's
+money-as-string, Gitea's key form) is checked end to end rather than only in
+unit tests. WhatsApp is the exception and `docs/EVALS.md` says why: it pushes
+rather than polls, so a golden task would be testing the webhook.
+
 The last two rows are the honest version of "we support ServiceNow and
 Guidewire". What the tests prove is that the connector handles the *shapes*
 correctly, and the shapes are the part that transfers between a mock and the
