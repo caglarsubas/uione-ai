@@ -151,6 +151,26 @@ say is nearly always the wrong shape.** The connector had already made the
 distinction structurally; the case should have asserted the distinction survived,
 not that half of it disappeared.
 
+### And a third, which only a second run found
+
+`claims/money_keeps_its_cents` passed on its own and failed in the full suite.
+The amount was right both times; what failed was a second assertion requiring the
+reply to contain `CLM-004402`. The model had answered *"the incurred amount is
+6120.50 EUR"* — a good answer to a question that had already named the claim.
+
+Demanding an identifier be echoed back at the person who just typed it is not an
+invariant. It is noise, it made the case flaky, and it would eventually have been
+"explained away" on a red run, which is how a suite stops being believed.
+
+Identifiers matter when the model is **telling you one you did not supply** —
+that is what the language suite and `tasks/keys_are_the_form_a_person_types`
+measure. Removed here; the cents are the invariant, and they held on every run.
+
+Three assertion mistakes in this document, all the same species: **asserting
+something incidental to the invariant rather than the invariant.** A case is
+worth writing only once you can say what would have to be broken for it to fail,
+and the answer must not be "the model phrased it differently".
+
 ## The verification suite, and what it measures
 
 Read-after-write (F2.6) is architecture: the gateway re-reads, the verdict lands

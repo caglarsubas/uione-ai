@@ -734,7 +734,15 @@ CONNECTOR_CASES = [
             m, _claims_source(), "How much is incurred on CLM-004402?", server="claims"
         ),
         assertions=[
-            Contains("CLM-004402"),
+            # Deliberately *only* the amount. An earlier version also required
+            # the reply to contain "CLM-004402", which failed a run where the
+            # model answered "the incurred amount is 6120.50 EUR" — a perfectly
+            # good answer to a question that had already named the claim.
+            # Demanding an identifier be echoed back at the person who just
+            # typed it is not an invariant, it is noise, and it made the case
+            # flaky for no gain. Identifiers matter when the model is *telling*
+            # you one you did not supply; that is what the language suite and
+            # `tasks/keys_are_the_form_a_person_types` cover.
             AnyOf(
                 [Contains("6120.50"), Contains("6,120.50")],
                 why="the cents must survive; the thousands separator may vary",
