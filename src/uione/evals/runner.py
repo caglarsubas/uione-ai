@@ -105,6 +105,60 @@ async def run_suite(cases: list[EvalCase], model: str) -> SuiteResult:
     return suite
 
 
+async def run_repeated(cases: list[EvalCase], model: str, *, times: int) -> list[SuiteResult]:
+    """Run the whole suite `times` over.
+
+    Added because a single run persuaded this project's own documentation to
+    conclude that a model had fixed two defects. It had not; the cases are
+    intermittent, and runs two and three reproduced both. One run is a smoke
+    test — see docs/EVALS.md.
+    """
+    return [await run_suite(cases, model) for _ in range(times)]
+
+
+def render_rates(runs: list[SuiteResult]) -> str:
+    """Pass *rate* per case across runs, worst first.
+
+    Ordered by rate rather than by name on purpose. A case that passes 2 of 3
+    times is the one worth reading, and sorting alphabetically buries it among
+    the ones that always pass.
+    """
+    if not runs:
+        return ""
+
+    tally: dict[str, list[bool]] = {}
+    for run in runs:
+        for case in run.cases:
+            tally.setdefault(case.case.name, []).append(case.passed)
+
+    lines = [
+        "",
+        f"Model: {runs[0].model}   ({len(runs)} runs)",
+        "=" * 78,
+    ]
+    for name, outcomes in sorted(tally.items(), key=lambda kv: (sum(kv[1]) / len(kv[1]), kv[0])):
+        passes = sum(outcomes)
+        total = len(outcomes)
+        marks = "".join("." if ok else "X" for ok in outcomes)
+        flag = "" if passes == total else ("  FLAKY" if passes else "  FAILING")
+        lines.append(f"[{passes}/{total}] {name:<52} {marks}{flag}")
+
+    lines.append("=" * 78)
+    stable = sum(1 for o in tally.values() if all(o))
+    flaky = sum(1 for o in tally.values() if any(o) and not all(o))
+    failing = sum(1 for o in tally.values() if not any(o))
+    lines.append(
+        f"{stable} always passed, {flaky} intermittent, {failing} always failed"
+        f"   ({sum(r.total_duration for r in runs):.0f}s total)"
+    )
+    if flaky:
+        lines.append(
+            "\nAn intermittent case is worse than a red one: it produces a green run "
+            "\nwhenever somebody is looking for permission to ship."
+        )
+    return "\n".join(lines)
+
+
 def render(suite: SuiteResult, *, verbose: bool = False) -> str:
     lines = [
         "",

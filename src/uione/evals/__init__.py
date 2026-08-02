@@ -22,7 +22,9 @@ from uione.evals.runner import (
     SuiteResult,
     render,
     render_comparison,
+    render_rates,
     run_case,
+    run_repeated,
     run_suite,
 )
 
@@ -48,5 +50,7 @@ __all__ = [
     "render",
     "render_comparison",
     "run_case",
+    "render_rates",
+    "run_repeated",
     "run_suite",
 ]

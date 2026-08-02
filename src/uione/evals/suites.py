@@ -5,13 +5,22 @@ guarantee we sell would be worthless without a test. Cases are written against
 the fixture estate in ``connectors.demo``, so expected values are exact rather
 than approximate.
 
-Three suites:
+Six suites:
 
-* ``brief``  — the signature moment, including the two defects recorded in
+* ``brief``        — the signature moment, including the two defects recorded in
   ``docs/MORNING_BRIEF.md``
-* ``agent``  — tool selection and restraint
-* ``safety`` — governance and injection containment; these must never regress,
-  and a model that fails one is not admitted to a write-capable tier
+* ``agent``        — tool selection and restraint
+* ``language``     — prose is translated, identifiers are not
+* ``safety``       — governance and injection containment; these must never
+  regress, and a model that fails one is not admitted to a write-capable tier
+* ``verification`` — the one part of read-after-write the architecture cannot
+  enforce: whether a model obeys "do not retry"
+* ``connectors``   — one case per connector, run against the **vendor mocks** so
+  the real connector code is exercised rather than the demo fixtures
+
+The line between ``safety`` and the rest is load-bearing: a red ``safety`` case
+is a hole in the architecture, and a red case anywhere else is a quality signal
+about a model. See ``docs/EVALS.md``.
 """
 
 from __future__ import annotations
@@ -589,7 +598,225 @@ VERIFICATION_CASES = [
 ]
 
 
-ALL_CASES = BRIEF_CASES + AGENT_CASES + LANGUAGE_CASES + SAFETY_CASES + VERIFICATION_CASES
+# -- connector suite -------------------------------------------------------
+#
+# Six connectors shipped without the golden tasks §E4 says every connector ships
+# with. These are those, and each guards an invariant its own module documents —
+# the kind that breaks silently, where the assistant keeps answering fluently
+# and is simply wrong.
+#
+# They run against the **vendor mocks**, not the demo fixtures, so the real
+# connector code is exercised: ServiceNow's three-shaped fields, Guidewire's
+# money-as-string, Gitea's key form. A case here failing means either the model
+# lost a value or the connector stopped parsing one, and both are worth knowing.
+
+
+def _asgi(app, base: str):
+    import httpx
+
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=base)
+
+
+async def _connector_scenario(model: str, source, message: str, *, server: str) -> EvalOutput:
+    gateway = McpGateway(
+        policy=ToolPolicy(
+            [Grant(role="analyst", tools=frozenset({f"{server}.*"}), max_risk=RiskClass.READ)]
+        ),
+        audit=AuditLog(InMemoryAuditSink()),
+        governor=Governor(),
+    )
+    await gateway.register(source)
+
+    async with ModelPlaneClient(_settings(model)) as client:
+        run = await AgentRuntime(model=client, gateway=gateway).run(ALICE, message, max_steps=4)
+
+    return EvalOutput(
+        text=run.final or "",
+        tools_called=[i.resolved_name for i in run.invocations if i.resolved_name],
+    )
+
+
+def _servicenow_source():
+    from uione.connectors.incidents import (
+        ServiceNowIncidents,
+        build_servicenow_source,
+        servicenow_config,
+    )
+    from uione.vendormocks.servicenow import build_servicenow_mock, seed_servicenow
+
+    backend = ServiceNowIncidents(
+        servicenow_config("http://snow.mock", "uione", "pw"),
+        user="uione",
+        client=_asgi(build_servicenow_mock(seed_servicenow()), "http://snow.mock"),
+    )
+    return build_servicenow_source(backend)
+
+
+def _claims_source():
+    from uione.connectors.claims import ClaimsBackend, build_claims_source, claims_config
+    from uione.vendormocks.claims import build_claims_mock, seed_claims
+
+    backend = ClaimsBackend(
+        claims_config("http://claims.mock", ""),
+        user="uione",
+        client=_asgi(build_claims_mock(seed_claims()), "http://claims.mock"),
+    )
+    return build_claims_source(backend)
+
+
+def _gitea_source():
+    from uione.connectors.tasks import GiteaTasks, build_gitea_source, gitea_config
+    from uione.vendormocks.gitea import build_gitea_mock, seed_gitea
+
+    backend = GiteaTasks(
+        gitea_config("http://gitea.mock", "t"),
+        client=_asgi(build_gitea_mock(seed_gitea()), "http://gitea.mock/api/v1"),
+    )
+    return build_gitea_source(backend)
+
+
+def _grafana_source():
+    from uione.connectors.bi import GrafanaBI, build_grafana_source, grafana_config
+    from uione.vendormocks.grafana import build_grafana_mock, seed_grafana
+
+    backend = GrafanaBI(
+        grafana_config("http://grafana.mock", "t"),
+        client=_asgi(build_grafana_mock(seed_grafana()), "http://grafana.mock"),
+    )
+    return build_grafana_source(backend)
+
+
+def _mattermost_source():
+    from uione.connectors.chat import MattermostChat, build_mattermost_source, mattermost_config
+    from uione.vendormocks.mattermost import build_mattermost_mock, seed_mattermost
+
+    backend = MattermostChat(
+        mattermost_config("http://mm.mock", "t"),
+        client=_asgi(build_mattermost_mock(seed_mattermost()), "http://mm.mock"),
+    )
+    return build_mattermost_source(backend)
+
+
+CONNECTOR_CASES = [
+    EvalCase(
+        name="incidents/states_are_labels_not_codes",
+        description=(
+            "ServiceNow returns `state` as '2', or 'In Progress', or both, depending "
+            "on a query parameter — the design problem servicenow.py exists to solve. "
+            "A connector that picks the wrong shape does not crash; it reports every "
+            "incident's state as the wrong thing until somebody notices the assistant "
+            "saying 'resolved' about a live outage."
+        ),
+        suite="connectors",
+        scenario=lambda m: _connector_scenario(
+            m, _servicenow_source(), "What is the status of INC0010001?", server="incidents"
+        ),
+        assertions=[
+            Contains("INC0010001"),
+            FactMatches(
+                anchor="INC0010001",
+                pattern=r"(?:New|In Progress|On Hold|Resolved|Closed)",
+                expected="In Progress",
+                why="the label, never the raw code",
+            ),
+        ],
+    ),
+    EvalCase(
+        name="claims/money_keeps_its_cents",
+        description=(
+            "gwclaims.py passes amounts through as decimal strings and never parses "
+            "them into a float, because cents in a claims system are a regulatory "
+            "matter rather than a rounding preference. CLM-004402 is 6120.50 — the "
+            "value that loses its trailing digit the moment somebody floats it."
+        ),
+        suite="connectors",
+        scenario=lambda m: _connector_scenario(
+            m, _claims_source(), "How much is incurred on CLM-004402?", server="claims"
+        ),
+        assertions=[
+            # Deliberately *only* the amount. An earlier version also required
+            # the reply to contain "CLM-004402", which failed a run where the
+            # model answered "the incurred amount is 6120.50 EUR" — a perfectly
+            # good answer to a question that had already named the claim.
+            # Demanding an identifier be echoed back at the person who just
+            # typed it is not an invariant, it is noise, and it made the case
+            # flaky for no gain. Identifiers matter when the model is *telling*
+            # you one you did not supply; that is what the language suite and
+            # `tasks/keys_are_the_form_a_person_types` cover.
+            AnyOf(
+                [Contains("6120.50"), Contains("6,120.50")],
+                why="the cents must survive; the thousands separator may vary",
+            ),
+        ],
+    ),
+    EvalCase(
+        name="tasks/keys_are_the_form_a_person_types",
+        description=(
+            "gitea.py renders owner/repo#number rather than the database id, because "
+            "the id appears nowhere a human will ever see it and the work graph "
+            "matches on the key."
+        ),
+        suite="connectors",
+        scenario=lambda m: _connector_scenario(
+            m, _gitea_source(), "What issues are assigned to me?", server="tasks"
+        ),
+        assertions=[
+            Contains("uione/payments-platform#1", why="the key, not the id"),
+        ],
+    ),
+    EvalCase(
+        name="bi/reports_the_blind_spot_as_well_as_the_alerts",
+        description=(
+            "The Grafana fixture has a rule whose datasource is missing: health "
+            "'error', state 'inactive'. The connector reports it under 'Rules not "
+            "evaluating' rather than dropping it, because a rule that cannot fire "
+            "is a blind spot and silence about it is worse than the outage (G8). "
+            "The model has to pass that on rather than answer only the cheerful half."
+            "\n\n"
+            "This case was first written the other way round — asserting the broken "
+            "rule was *absent* from a 'what is firing' answer — and it failed a model "
+            "that had behaved correctly by relaying the caveat. That is the same "
+            "mistake this document already records making once, on the injection "
+            "case, and it is worth recording that it was made again: an assertion "
+            "about what a model must *not say* is nearly always the wrong shape."
+        ),
+        suite="connectors",
+        scenario=lambda m: _connector_scenario(
+            m, _grafana_source(), "Which alerts are firing right now?", server="bi"
+        ),
+        assertions=[
+            Contains("Settlement failure rate", why="the critical one"),
+            Contains("Refund latency", why="the warning one — both, not just the loudest"),
+            Contains(
+                "Chargeback ratio",
+                why="the rule that cannot evaluate is a blind spot the user must hear about",
+            ),
+        ],
+    ),
+    EvalCase(
+        name="chat/attention_goes_where_you_were_mentioned",
+        description=(
+            "The fixture has a mention in Payments Ops and none in Random. An "
+            "assistant that reports both equally has added a second inbox rather "
+            "than triaged the first — gap G7."
+        ),
+        suite="connectors",
+        scenario=lambda m: _connector_scenario(
+            m, _mattermost_source(), "Anything in chat needing my attention?", server="chat"
+        ),
+        assertions=[
+            AnyOf(
+                [Contains("Payments Ops"), Contains("payments-ops")],
+                why="the channel that mentioned the user",
+            ),
+        ],
+    ),
+]
+
+
+ALL_CASES = (
+    BRIEF_CASES + AGENT_CASES + LANGUAGE_CASES + SAFETY_CASES + VERIFICATION_CASES + CONNECTOR_CASES
+)
 
 SUITES = {
     "brief": BRIEF_CASES,
@@ -597,6 +824,7 @@ SUITES = {
     "language": LANGUAGE_CASES,
     "safety": SAFETY_CASES,
     "verification": VERIFICATION_CASES,
+    "connectors": CONNECTOR_CASES,
     "all": ALL_CASES,
 }
 
