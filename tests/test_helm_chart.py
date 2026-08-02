@@ -21,8 +21,13 @@ CHART = Path(__file__).resolve().parents[1] / "deploy" / "helm" / "uione"
 
 pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 
-#: The one required value, so every invocation below is otherwise minimal.
-BASE = ["--set", "modelPlane.url=http://engine.svc:8080/v1"]
+#: The two values a release cannot start without, so every invocation below is
+#: otherwise minimal. `UIONE_AUTH_MODE` is here because the chart refuses to
+#: render a production environment with dev auth — see the test at the bottom.
+BASE = [
+    "--set", "modelPlane.url=http://engine.svc:8080/v1",
+    "--set", "config.UIONE_AUTH_MODE=proxy",
+]  # fmt: skip
 
 DISTRIBUTED = [
     *BASE,
@@ -182,10 +187,10 @@ def test_the_database_url_comes_from_a_secret_not_a_value() -> None:
 # -- migrations ------------------------------------------------------------
 
 
-def test_migrations_run_once_as_a_hook_not_in_every_pod() -> None:
-    """UIONE_DB_AUTO_UPGRADE on means every replica races to migrate the same
-    database. A pre-upgrade Job runs once, and a failed migration fails the
-    release instead of half-migrating under live traffic."""
+def test_postgres_migrates_with_a_hook_and_no_pod_races() -> None:
+    """Many pods, so UIONE_DB_AUTO_UPGRADE on would have every replica racing to
+    migrate the same database. A pre-upgrade Job runs once, and a failed
+    migration fails the release instead of half-migrating under live traffic."""
     docs = render(*DISTRIBUTED)
 
     job = of_kind(docs, "Job")[0]
@@ -201,10 +206,28 @@ def test_migrations_run_once_as_a_hook_not_in_every_pod() -> None:
         assert env_of(deployment)["UIONE_DB_AUTO_UPGRADE"] == "false"
 
 
+def test_the_migration_job_mounts_no_volume() -> None:
+    """It is a pre-install hook, so it runs *before* Helm creates the chart's
+    ordinary resources — a claim it mounted would not exist yet. It only exists
+    on PostgreSQL, where the database is elsewhere entirely, so it needs none."""
+    container = of_kind(render(*DISTRIBUTED), "Job")[0]["spec"]["template"]["spec"]["containers"][0]
+    assert [m["mountPath"] for m in container["volumeMounts"]] == ["/tmp"]
+
+
+def test_sqlite_migrates_in_process_with_no_job() -> None:
+    """SQLite implies exactly one pod — every configuration with more is refused
+    above — so the race the Job exists to prevent cannot happen, and the pod that
+    owns the file migrates it."""
+    docs = render(*BASE)
+
+    assert not of_kind(docs, "Job")
+    assert env_of(of_kind(docs, "Deployment", "web")[0])["UIONE_DB_AUTO_UPGRADE"] == "true"
+
+
 def test_the_migration_job_name_changes_per_revision() -> None:
     """Jobs are immutable. A fixed name makes the second upgrade fail with
     "field is immutable" instead of migrating."""
-    first = of_kind(render(*BASE), "Job")[0]["metadata"]["name"]
+    first = of_kind(render(*DISTRIBUTED), "Job")[0]["metadata"]["name"]
     assert first.endswith("-1")  # Release.Revision
 
 
@@ -286,4 +309,29 @@ def test_a_file_share_without_a_volume_is_refused() -> None:
 
 def test_a_file_share_on_the_volume_is_accepted() -> None:
     docs = render(*BASE, "--set", "config.UIONE_FILES_ROOT=/data/share")
+    assert of_kind(docs, "Deployment", "web")
+
+
+def test_a_production_environment_with_dev_auth_is_refused() -> None:
+    """`UIONE_AUTH_MODE` defaults to dev, which accepts unauthenticated headers,
+    and the identity layer refuses that outside a dev environment. The chart
+    defaults the environment to production, so a release setting neither is a
+    CrashLoopBackOff with the reason four screens into `kubectl logs`.
+
+    Found by installing on a real cluster rather than rendering — which is the
+    whole argument for the `cluster` CI job.
+    """
+    message = refuse("--set", "modelPlane.url=http://engine.svc:8080/v1")
+
+    assert "accepts unauthenticated headers" in message
+    assert "CrashLoopBackOff" in message
+
+
+def test_a_dev_environment_may_use_dev_auth() -> None:
+    """The refusal is about the combination, not about dev auth existing."""
+    docs = render(
+        "--set", "modelPlane.url=http://engine.svc:8080/v1",
+        "--set", "config.UIONE_ENVIRONMENT=dev",
+    )  # fmt: skip
+
     assert of_kind(docs, "Deployment", "web")

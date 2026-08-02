@@ -45,10 +45,14 @@ database:
 
   # Run `alembic upgrade head` as a pre-install/pre-upgrade Job.
   #
-  # This is why UIONE_DB_AUTO_UPGRADE stays off in the pods. Auto-upgrade on
-  # start means every replica races to migrate the same database; a Job runs
-  # once, before any pod starts, and a failed migration fails the release
-  # instead of half-migrating under live traffic.
+  # **PostgreSQL only.** There, many pods would race to migrate the same
+  # database, so the Job does it once before any of them start and a failed
+  # migration fails the release rather than half-migrating under live traffic.
+  #
+  # On SQLite there is provably one pod — every configuration with more is
+  # refused — so the race cannot happen and the pod migrates its own file. No
+  # Job is rendered, which also avoids a pre-install hook referencing a
+  # PersistentVolumeClaim Helm has not created yet.
   migrateOnUpgrade: true
 
 modelPlane:
@@ -96,6 +100,16 @@ config:
   UIONE_ENVIRONMENT: production
   UIONE_LOG_LEVEL: INFO
   UIONE_BRIEF_TIMEZONE: UTC
+
+  # Required. There is no safe default: `dev` accepts unauthenticated headers
+  # and the identity layer refuses it in a production environment, so leaving
+  # this unset is a CrashLoopBackOff rather than an insecure deployment — which
+  # is the right direction to fail, and the chart refuses to render it at all.
+  #
+  #   oidc      with UIONE_OIDC_ISSUER and UIONE_OIDC_AUDIENCE
+  #   proxy     behind an ingress that authenticates and sets X-Forwarded-User
+  #   disabled  refuses every request; useful while you configure the above
+  # UIONE_AUTH_MODE: oidc
 
 service:
   type: ClusterIP

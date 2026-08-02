@@ -69,19 +69,30 @@ total one.
 
 So all three probes use `/health`. Alert on `/ready`; do not probe with it.
 
-## Migrations run once, as a hook
+## Migrations, and who runs them
 
-`UIONE_DB_AUTO_UPGRADE` is `false` in every pod, set by the chart rather than
-left to the image default — an image built with a different default would
-otherwise turn each replica into a competing migrator.
+Who migrates depends on how many pods there are, and the chart already knows.
 
-Instead a `pre-install,pre-upgrade` Job runs `python -m uione.storage.cli
-upgrade` before any pod starts. A failed migration then fails the release,
-rather than half-migrating under live traffic.
+**On SQLite, the pod migrates its own database.** `UIONE_DB_AUTO_UPGRADE` is
+`true`. That setting defaults off in `config.py` because two replicas starting
+together would both migrate — but SQLite here provably has one pod, since every
+configuration with more is refused above. The race the flag guards against
+cannot occur.
 
-The Job's name carries the release revision, because Jobs are immutable and a
-fixed name makes the *second* upgrade fail with `field is immutable` instead of
-migrating.
+**On PostgreSQL there are many pods**, so it is `false` and a
+`pre-install,pre-upgrade` Job runs `python -m uione.storage.cli upgrade` before
+any of them start. A failed migration fails the release rather than
+half-migrating under live traffic. The Job's name carries the release revision,
+because Jobs are immutable and a fixed name makes the *second* upgrade fail with
+`field is immutable` instead of migrating.
+
+That split also fixes an ordering bug worth recording, because it was invisible
+until somebody tried to run the chart on a real cluster: **a pre-install hook
+runs before Helm creates the chart's ordinary resources.** The first version of
+this Job mounted the release's PersistentVolume, so on the SQLite profile it
+would have been scheduled against a claim that did not exist yet. The profile
+that needs the volume no longer needs the Job, and the profile that needs the
+Job needs no volume.
 
 ## What the chart refuses
 
@@ -98,6 +109,7 @@ the person doing the install.
 | `serviceMonitor` without a token | `/metrics` is 404 without one; the ServiceMonitor would scrape nothing and report itself healthy |
 | `UIONE_FILES_ROOT` off `/data` | The entrypoint creates that directory at startup and cannot on a read-only root — CrashLoopBackOff with a permission error four levels down |
 | `UIONE_FILES_ROOT` without persistence | Every document the assistant writes vanishes with the pod |
+| production environment + `dev` auth | Dev auth accepts unauthenticated headers; the identity layer refuses it outside a dev environment, so the pod CrashLoopBackOffs |
 
 `tests/test_helm_chart.py` asserts every one of them, and CI installs helm so
 they are real there rather than skipped.
@@ -129,6 +141,29 @@ Signed offline bundles for images, models and connectors are **F12.3 and are not
 built yet**. This chart is deployable from a private registry; it is not yet an
 offline installer.
 
+## Proven on a cluster, not just rendered
+
+The `cluster` CI job builds the image, stands up a kind cluster, installs the
+appliance profile, and asserts what `helm template` cannot: the PVC binds, uid
+10001 writes its database through a read-only root filesystem, the pod becomes
+Ready, and a second `helm upgrade` rolls cleanly with the data still there.
+
+**Its first run found a defect nothing else could have.** The chart shipped
+`UIONE_ENVIRONMENT: production` with no auth configuration, and `UIONE_AUTH_MODE`
+defaults to `dev` — which accepts unauthenticated headers, and which the identity
+layer refuses outside a dev environment. The chart as published could not start.
+It rendered perfectly, passed 24 template tests, and CrashLoopBackOffed on a real
+cluster with the reason four screens into `kubectl logs`. That is now the seventh
+refusal in the table above.
+
+It installs with **no reachable model plane**, and that is the assertion rather
+than a shortcut. The probes point at `/health` precisely so a shared dependency
+being down cannot empty the Service; a cluster where the model plane does not
+exist is the cheapest possible test of it. The job also asserts `/ready` answers
+**503** while the pod stays **Ready** — the whole design in one line. If somebody
+ever "fixes" the probes to use `/ready`, this goes red instead of a customer's
+workspace going dark.
+
 ## What is still missing
 
 - **No HorizontalPodAutoscaler.** Web pods scale on request concurrency, which
@@ -138,6 +173,4 @@ offline installer.
   defaulting.
 - **No NetworkPolicy.** Should be written against a real customer's topology
   rather than guessed.
-- **Not deployed against a real cluster in CI.** `helm template` proves what the
-  manifests say; a kind cluster would prove the pods start. That is the next
-  thing worth adding here.
+The chart *is* now deployed against a real cluster in CI — see below.

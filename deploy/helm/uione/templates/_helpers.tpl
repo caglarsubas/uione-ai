@@ -92,6 +92,24 @@ anybody is in a position to fix it cheaply.
 {{- end -}}
 
 {{/*
+Auth has to be configured, or the container exits on boot.
+
+`UIONE_AUTH_MODE` defaults to `dev`, which accepts unauthenticated headers, and
+the identity layer refuses that outside a dev environment — by design, and it is
+the right design. The chart defaults `UIONE_ENVIRONMENT` to `production`, so a
+release that sets neither is a CrashLoopBackOff with the reason four screens into
+`kubectl logs`.
+
+This was found by installing the chart on a real cluster, not by rendering it,
+which is the entire argument for the `cluster` CI job.
+*/}}
+{{- $env := index .Values.config "UIONE_ENVIRONMENT" | default "production" -}}
+{{- $mode := index .Values.config "UIONE_AUTH_MODE" | default "dev" -}}
+{{- if and (ne $env "dev") (eq $mode "dev") -}}
+{{- fail (printf "UIONE_ENVIRONMENT is %s and UIONE_AUTH_MODE is 'dev', which accepts unauthenticated headers. The identity layer refuses that combination at startup, so the pod would CrashLoopBackOff. Set config.UIONE_AUTH_MODE to 'oidc' (with UIONE_OIDC_ISSUER) or 'proxy' (behind an authenticating ingress), or 'disabled' to refuse every request while you configure it." $env) -}}
+{{- end -}}
+
+{{/*
 The file share has to be on a writable mount.
 
 docker-entrypoint.sh creates UIONE_FILES_ROOT if it is missing, deliberately —
@@ -158,12 +176,23 @@ world they are acting on.
   value: {{ .Values.tracing.serviceName | quote }}
 {{- end }}
 {{/*
-Never on in a pod. Migrations are a Job that runs once — see job-migrate.yaml.
-Set here rather than left to the image default so that an image built with a
-different default cannot turn every replica into a competing migrator.
+Who runs the migration depends on how many pods there are, and the chart already
+knows.
+
+On SQLite there is provably **one** pod — the guards above refuse every
+configuration with more — so the racing-migrator problem that `db_auto_upgrade`
+defaults off for cannot occur, and the pod migrates its own database on start.
+
+On PostgreSQL there are many, so it is off here and a pre-upgrade Job does it.
+
+That split also fixes an ordering bug: a pre-install hook runs *before* the
+chart's ordinary resources, so a migration Job that mounted the PersistentVolume
+would be scheduled against a claim that did not exist yet. The profile that needs
+the volume no longer needs the Job, and the profile that needs the Job needs no
+volume.
 */}}
 - name: UIONE_DB_AUTO_UPGRADE
-  value: "false"
+  value: {{ eq (include "uione.isSqlite" .) "true" | quote }}
 {{- end -}}
 
 {{- define "uione.envFrom" -}}

@@ -64,6 +64,98 @@ jobs:
           python -m pip install --quiet pytest pyyaml
           python -m pytest -q tests/test_helm_chart.py
 
+
+  # `helm template` proves what the manifests say. It does not prove a pod
+  # starts, that the PVC binds, that uid 10001 can write to it through a
+  # read-only root filesystem, or that the migration hook runs before anything
+  # else. Same distinction the `image` job draws, one layer up.
+  #
+  # Deliberately installed with **no reachable model plane**. That is not a
+  # shortcut — it is the assertion. The probes point at /health rather than
+  # /ready precisely so a shared dependency being down cannot empty the Service,
+  # and a cluster where the model plane does not exist is the cheapest possible
+  # test of it. If somebody ever "fixes" the probes to use /ready, this job goes
+  # red instead of a customer's workspace going dark.
+  cluster:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t uione:ci .
+
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: uione
+
+      - name: Load the image into the cluster
+        run: kind load docker-image uione:ci --name uione
+
+      - name: Install the appliance profile
+        run: |
+          helm install uione deploy/helm/uione \
+            --set image.repository=uione \
+            --set image.tag=ci \
+            --set image.pullPolicy=Never \
+            --set modelPlane.url=http://nowhere.invalid:8080/v1 \
+            --set config.UIONE_AUTH_MODE=proxy \
+            --wait --timeout 5m
+
+      - name: No migration Job, because this profile has exactly one pod
+        # SQLite implies one pod — the chart refuses every configuration with
+        # more — so the racing-migrator problem UIONE_DB_AUTO_UPGRADE guards
+        # against cannot arise, and the pod migrates its own database. The Job
+        # exists only on the PostgreSQL profile, which needs no volume.
+        run: |
+          test -z "$(kubectl get jobs -o name)" \
+            || { echo "unexpected Job on the appliance profile"; kubectl get jobs; exit 1; }
+
+      - name: The volume bound and the database is on it
+        run: |
+          kubectl get pvc uione-uione-data -o jsonpath='{.status.phase}' | grep -q Bound
+          pod=$(kubectl get pod -l app.kubernetes.io/component=web -o name | head -1)
+          # uid 10001, read-only root, and it still wrote its database.
+          kubectl exec "$pod" -- test -f /data/uione.db
+          kubectl exec "$pod" -- sh -c 'id -u' | grep -qx 10001
+
+      - name: It serves, with the model plane unreachable
+        run: |
+          kubectl port-forward svc/uione-uione 8000:8000 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8000/health | tee /dev/stderr | grep -q '"status":"ok"'
+
+          # And /ready correctly reports degraded — which is why it is not the
+          # probe. A 503 here with a Ready pod is the whole design in one line.
+          code=$(curl -s -o /tmp/ready.json -w '%{http_code}' http://127.0.0.1:8000/ready)
+          cat /tmp/ready.json
+          test "$code" = "503" || { echo "expected 503 from /ready, got $code"; exit 1; }
+          kubectl get pod -l app.kubernetes.io/component=web \
+            -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' | grep -qx True
+
+      - name: An upgrade rolls cleanly and keeps the data
+        # A second `helm upgrade` is where immutability problems surface — the
+        # thing a customer meets on their second release and we never would.
+        run: |
+          helm upgrade uione deploy/helm/uione \
+            --set image.repository=uione \
+            --set image.tag=ci \
+            --set image.pullPolicy=Never \
+            --set modelPlane.url=http://nowhere.invalid:8080/v1 \
+            --set config.UIONE_AUTH_MODE=proxy \
+            --wait --timeout 5m
+          pod=$(kubectl get pod -l app.kubernetes.io/component=web -o name | head -1)
+          kubectl exec "$pod" -- test -f /data/uione.db
+
+      - name: What happened, if anything did not
+        if: failure()
+        run: |
+          kubectl get all
+          kubectl describe pods
+          kubectl logs -l app.kubernetes.io/name=uione --tail=100 --all-containers || true
+
   # The job that would have caught a `pyproject.toml` which could not build a
   # wheel at all. `pip install -e` never builds one, so the packaging was
   # broken for weeks while every test passed.
