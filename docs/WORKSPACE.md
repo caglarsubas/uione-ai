@@ -237,10 +237,30 @@ the first time its top item looks wrong to them.
 | critical incident | A P1/P2 assigned to you |
 | assigned work | A ticket or incident that is yours |
 
-**Unread mail is deliberately absent.** An unread message is not necessarily an
-action, and a queue that lists every unread mail has become the inbox it was
-meant to replace. Mail earns a place when a connector can answer *which messages
-await a reply* — a real question nobody has answered yet.
+**Mail is in, but most of it is not.** An unread message is not an action, and
+a queue listing the whole mailbox has become the inbox it replaced. So the
+connector answers a narrower question — *which messages await a reply* — with a
+rule, not a model:
+
+| Condition | Why |
+|---|---|
+| Unread | Necessary, nowhere near sufficient |
+| In `To:`, not merely `Cc:` | Being copied is how you are told something; being addressed is how you are *asked* something. This does most of the work. |
+| Not bulk | Read from `List-Unsubscribe`, `List-Id`, `List-Post`, `Auto-Submitted`, `Precedence` — headers a sender is obliged to set |
+
+Bulk is detected from **headers, never from matching `no-reply` in the address**.
+That heuristic is wrong in both directions: automated mail routinely comes from
+ordinary-looking addresses, and a person whose address happens to contain
+`noreply` still asks real questions.
+
+Nothing reads the body looking for a question mark, and no model is asked whether
+it sounds like a request. Both would be guessing, and a queue whose membership
+cannot be explained in one sentence is one people stop trusting the first time it
+surprises them.
+
+**Its blind spot, stated rather than discovered later:** a message in a thread
+you are already part of, sent to a group alias rather than to you, is missed.
+Catching that needs thread state the connector does not keep.
 
 ### What it required
 

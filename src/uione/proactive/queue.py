@@ -151,11 +151,12 @@ class WorkQueue:
 
 #: Where queue items come from, and how each becomes one.
 #:
-#: Only tools that answer "assigned to *me*" are here. `mail.list_unread` is
-#: deliberately absent: an unread message is not necessarily an action, and a
-#: queue that lists every unread mail has become the inbox it was meant to
-#: replace. Mail earns a place when a connector can say which messages await a
-#: reply, which is a real question nobody has answered yet.
+#: Every tool here answers "what is awaiting *me*", which is the only question a
+#: queue may ask. `mail.list_unread` was excluded until it could: an unread
+#: message is not an action, and a queue listing the whole mailbox has become the
+#: inbox it was meant to replace. It now returns rows only for messages that are
+#: unread, addressed to this person directly rather than copied, and not bulk —
+#: see `connectors.mail.source.awaits_reply` for the rule and its blind spot.
 _SOURCES = (
     ("tasks.my_open_issues", Urgency.ASSIGNED_WORK, "assigned to you"),
     ("incidents.my_incidents", Urgency.ASSIGNED_WORK, "assigned to you"),
@@ -163,6 +164,7 @@ _SOURCES = (
     # renaming one: the fixture's name is right for a fixture that has no notion
     # of "me", and ServiceNow's is right for a system that does.
     ("incidents.active", Urgency.ASSIGNED_WORK, "open and assigned to you"),
+    ("mail.list_unread", Urgency.AWAITING_REPLY, "addressed to you and unanswered"),
 )
 
 #: ServiceNow priorities that outrank ordinary assigned work.

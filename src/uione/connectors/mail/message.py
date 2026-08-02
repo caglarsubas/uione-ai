@@ -62,6 +62,16 @@ class MailMessage:
     #: classification, so it is computed from configuration rather than guessed.
     external: bool = True
 
+    #: Whether this arrived as bulk mail — a newsletter, a notification, an
+    #: automated report.
+    #:
+    #: Read from the headers senders are *obliged* to set rather than guessed
+    #: from the address. `no-reply@` matching catches some of it and is wrong in
+    #: both directions: plenty of automated mail comes from ordinary-looking
+    #: addresses, and plenty of people have `noreply` nowhere near their name
+    #: while sending genuine questions.
+    bulk: bool = False
+
     @property
     def sender_display(self) -> str:
         if self.from_name and self.from_address:
@@ -254,7 +264,41 @@ def parse_message(
         message_id=(message.get("Message-ID") or "").strip(),
         in_reply_to=(message.get("In-Reply-To") or "").strip(),
         external=is_external(from_address, internal_domains),
+        bulk=is_bulk(message),
     )
+
+
+#: Headers that mean "this was sent to a list, or by a machine".
+#:
+#: `List-Unsubscribe` and `List-Id` are RFC 2369/2919 and are set by anything
+#: that considers itself a mailing list. `Auto-Submitted` is RFC 3834 and is what
+#: an auto-responder or a ticketing system sets. `Precedence: bulk|list|junk` is
+#: not in any standard but predates all of them and is still widely set.
+_BULK_HEADERS = ("List-Unsubscribe", "List-Id", "List-Post")
+_BULK_PRECEDENCE = frozenset({"bulk", "list", "junk", "auto_reply"})
+
+
+def is_bulk(message: Message) -> bool:
+    """Whether a message is list or machine mail.
+
+    Header-driven on purpose. The tempting alternative — matching `no-reply` in
+    the sender — is wrong in both directions: automated mail routinely comes from
+    ordinary-looking addresses, and a person whose address happens to contain
+    `noreply` still asks real questions.
+
+    Conservative: an unrecognised message is *not* bulk. This decides whether
+    something is hidden from a queue, and hiding a colleague's question is worse
+    than showing one newsletter.
+    """
+    if any(message.get(header) for header in _BULK_HEADERS):
+        return True
+
+    auto = (message.get("Auto-Submitted") or "").strip().lower()
+    if auto and auto != "no":
+        return True
+
+    precedence = (message.get("Precedence") or "").strip().lower()
+    return precedence in _BULK_PRECEDENCE
 
 
 def is_external(address: str, internal_domains: frozenset[str]) -> bool:

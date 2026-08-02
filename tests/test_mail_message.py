@@ -226,3 +226,54 @@ def test_quote_strips_line_breaks() -> None:
 
 def test_quote_bounds_length() -> None:
     assert len(quote_imap("x" * 10_000)) < 600
+
+
+# -- bulk detection --------------------------------------------------------
+
+
+def _msg(headers: dict) -> bytes:
+    lines = [f"{k}: {v}" for k, v in headers.items()]
+    return ("\r\n".join(lines) + "\r\n\r\nbody\r\n").encode()
+
+
+@pytest.mark.parametrize(
+    "header,value",
+    [
+        ("List-Unsubscribe", "<mailto:x@lists.example>"),
+        ("List-Id", "<announce.lists.example>"),
+        ("List-Post", "<mailto:announce@lists.example>"),
+        ("Auto-Submitted", "auto-generated"),
+        ("Auto-Submitted", "auto-replied"),
+        ("Precedence", "bulk"),
+        ("Precedence", "list"),
+        ("Precedence", "junk"),
+    ],
+)
+def test_headers_that_mean_bulk(header: str, value: str) -> None:
+    parsed = parse_message(_msg({"From": "a@b.example", header: value}), uid="1")
+
+    assert parsed.bulk
+
+
+def test_auto_submitted_no_is_not_bulk() -> None:
+    """RFC 3834 spells "this is a real message" as Auto-Submitted: no."""
+    parsed = parse_message(_msg({"From": "a@b.example", "Auto-Submitted": "no"}), uid="1")
+
+    assert not parsed.bulk
+
+
+def test_an_ordinary_message_is_not_bulk() -> None:
+    """Conservative: an unrecognised message is not bulk. This decides what gets
+    hidden from a queue, and hiding a colleague's question is worse than showing
+    one newsletter."""
+    parsed = parse_message(_msg({"From": "bora@corp.example", "Subject": "Lunch?"}), uid="1")
+
+    assert not parsed.bulk
+
+
+def test_a_no_reply_address_is_not_itself_bulk() -> None:
+    """Matching the address is the tempting wrong answer: it is wrong in both
+    directions, and this asserts we did not take it."""
+    parsed = parse_message(_msg({"From": "no-reply@corp.example"}), uid="1")
+
+    assert not parsed.bulk

@@ -236,7 +236,12 @@ def build_connectors(settings: Settings, inbound=None) -> list:
         # Replace the fixture mail source rather than adding alongside it: two
         # servers named "mail" would silently shadow each other in the catalog.
         sources = [s for s in sources if s.name != "mail"]
-        sources.append(build_mail_source(ImapMailBackend(account)))
+        sources.append(
+            # The account's own address, so the queue can tell being *asked*
+            # from being copied. Without it every unread message would look
+            # like it was addressed to this person.
+            build_mail_source(ImapMailBackend(account), account_address=settings.mail_username)
+        )
         log.info("connectors.mail_backend", backend="imap", host=settings.mail_imap_host)
     else:
         log.info("connectors.mail_backend", backend="fixture")
