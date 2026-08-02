@@ -45,10 +45,14 @@ database:
 
   # Run `alembic upgrade head` as a pre-install/pre-upgrade Job.
   #
-  # This is why UIONE_DB_AUTO_UPGRADE stays off in the pods. Auto-upgrade on
-  # start means every replica races to migrate the same database; a Job runs
-  # once, before any pod starts, and a failed migration fails the release
-  # instead of half-migrating under live traffic.
+  # **PostgreSQL only.** There, many pods would race to migrate the same
+  # database, so the Job does it once before any of them start and a failed
+  # migration fails the release rather than half-migrating under live traffic.
+  #
+  # On SQLite there is provably one pod — every configuration with more is
+  # refused — so the race cannot happen and the pod migrates its own file. No
+  # Job is rendered, which also avoids a pre-install hook referencing a
+  # PersistentVolumeClaim Helm has not created yet.
   migrateOnUpgrade: true
 
 modelPlane:
