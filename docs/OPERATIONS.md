@@ -83,6 +83,46 @@ is now [admission control](#admission-control), and observability is
 [Metrics](#metrics) and [Tracing](#tracing).
 
 
+## Connector health
+
+`GET /system/health` reports one of four states per connector, and the
+distinction between the first two is the whole point.
+
+| State | Means |
+|---|---|
+| `ok` | the last call to it succeeded |
+| `unknown` | nothing has called it in this process — no evidence either way |
+| `failing` | the last call failed, from the **first** failure onward |
+| `unavailable` | the circuit breaker has given up on it |
+
+`degraded` lists `failing` and `unavailable` only. A connector nobody has called
+is unexercised, not broken, and listing it would put a permanent warning on every
+deployment that does not use all nine.
+
+`connector_detail` carries the last error, because "tasks is failing" sends
+somebody to read logs and "tasks is failing: gitea unreachable" sends them to
+start gitea.
+
+### What this replaced, and why it mattered
+
+Health used to be derived from the circuit breaker: `unavailable` when open, `ok`
+otherwise. That answers *"is the breaker open"* — a question about our retry
+policy — rather than *"is this connector reachable"*.
+
+The breaker opens after **five consecutive failures** and half-opens back to
+closed thirty seconds later. So a connector that was comprehensively down read as
+healthy for the first four calls of every outage, and intermittently healthy
+after that. A connector nobody had ever called read as healthy forever.
+
+It was found from a screenshot of the running product: the workspace showed
+`tasks`, `chat` and `bi` all failing with `ConnectError`, while `/system/health`
+returned every connector `"ok"` and `degraded: []`.
+
+`uione_connector_up` had inherited the same reading, so the metric an operator
+would page on reported a dead connector as up. It now emits **no series at all**
+for `unknown` rather than a `1` — absent is the honest encoding, since
+`uione_connector_up == 0` should page and "never exercised" is not an outage.
+
 ## Metrics
 
 ```bash
@@ -109,7 +149,7 @@ there to be attacked.
 | `uione_verified_actions_total` | counter | Writes read back and **confirmed** — the north-star numerator. The ratio against the line above is the metric §9 of the strategy actually names. |
 | `uione_unconfirmed_actions_total` | counter | Writes the system contradicted. **Alert on any increase**: a system is accepting changes and discarding them. |
 | `uione_model_tokens_total{model,kind}` | counter | Where the GPU went. |
-| `uione_connector_up{server}` | gauge | 0 when the gateway has given up on a connector. |
+| `uione_connector_up{server}` | gauge | 0 when the last call to a connector failed. Absent for a connector nothing has called — see [Connector health](#connector-health). |
 | `uione_model_plane_queued` | gauge | Requests waiting for a slot — the number worth paging on, per [admission control](#admission-control). |
 | `uione_approvals_pending` | gauge | The approval backlog. A rising line is a user who has stopped reviewing. |
 

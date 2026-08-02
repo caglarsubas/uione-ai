@@ -453,7 +453,14 @@ async def system_health(services: Services = Depends(get_services)) -> dict[str,
     ingestion = services.refresher.status()
     return {
         "connectors": health,
-        "degraded": [name for name, status in health.items() if status != "ok"],
+        # `unknown` is not degraded. A connector nobody has called yet is
+        # unexercised, not broken, and listing it would put a permanent warning
+        # on every deployment that does not use all nine.
+        "degraded": sorted(services.gateway.degraded_servers()),
+        # The evidence, so "tasks is failing" becomes "tasks is failing: gitea
+        # unreachable" — which sends somebody to start gitea rather than to read
+        # logs.
+        "connector_detail": services.gateway.server_details(),
         # "How old are the permissions we are enforcing?" must be answerable
         # with a number rather than an assumption, so the age is reported even
         # when everything is healthy.

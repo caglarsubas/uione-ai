@@ -100,6 +100,31 @@ class CircuitBreaker:
             log.warning("mcphub.circuit_opened", server=server, failures=count)
 
 
+@dataclass
+class ServerState:
+    """What the gateway has actually observed of one connector.
+
+    The circuit breaker already counts failures, but it counts them for a
+    different purpose — deciding when to stop trying — and it is a bad answer to
+    "is this reachable". It opens only after five consecutive failures and
+    half-opens back to closed thirty seconds later, so a connector that is
+    comprehensively down reads as healthy for the first four calls of every
+    outage and intermittently healthy thereafter.
+
+    That is the beginning of every outage, which is the only part anybody needs
+    a health endpoint for.
+    """
+
+    consecutive_failures: int = 0
+    last_ok_at: float | None = None
+    last_failure_at: float | None = None
+    last_error: str | None = None
+
+    @property
+    def observed(self) -> bool:
+        return self.last_ok_at is not None or self.last_failure_at is not None
+
+
 class WriteVerifier(Protocol):
     """Confirms that a mutating call actually changed the world (F2.6).
 
@@ -176,6 +201,7 @@ class McpGateway:
         self._governor = governor
         self._verifier = verifier
         self._clock = clock
+        self._state: dict[str, ServerState] = {}
 
     # -- registration ------------------------------------------------------
 
@@ -345,6 +371,7 @@ class McpGateway:
                 result = await source.call(spec.tool, arguments, principal=principal)
             except Exception as exc:  # noqa: BLE001 — a connector must not crash the agent
                 self._breaker.record_failure(spec.server)
+                self._observe(spec.server, ok=False, error=f"{type(exc).__name__}: {exc}")
                 tracing.annotate(current, **{"uione.outcome": "failed"})
                 record = await self._audit.record(
                     principal=principal,
@@ -362,8 +389,10 @@ class McpGateway:
             duration_ms = (self._clock() - started) * 1000
             if result.ok:
                 self._breaker.record_success(spec.server)
+                self._observe(spec.server, ok=True)
             else:
                 self._breaker.record_failure(spec.server)
+                self._observe(spec.server, ok=False, error=result.error)
 
             if self._governor is not None:
                 await self._governor.note_execution(principal, spec, arguments, result)
@@ -422,11 +451,75 @@ class McpGateway:
 
     # -- health ------------------------------------------------------------
 
+    def _observe(self, server: str, *, ok: bool, error: str | None = None) -> None:
+        state = self._state.setdefault(server, ServerState())
+        if ok:
+            state.consecutive_failures = 0
+            state.last_ok_at = self._clock()
+            state.last_error = None
+        else:
+            state.consecutive_failures += 1
+            state.last_failure_at = self._clock()
+            state.last_error = error
+
     def server_health(self) -> dict[str, str]:
-        """Per-server status, for the honest-degradation surface (gap G8)."""
-        return {
-            name: ("unavailable" if self._breaker.is_open(name) else "ok") for name in self._sources
-        }
+        """Per-server status, for the honest-degradation surface (gap G8).
+
+        Derived from what was **observed**, not from the breaker. Four states,
+        and the distinction between the first two is the whole point:
+
+        ``ok``           the last call to it succeeded
+        ``unknown``      nothing has called it in this process, so there is no
+                         evidence either way. Reporting "ok" here is a claim
+                         nobody made — and it was the old behaviour.
+        ``failing``      the last call failed, from the first failure onward
+        ``unavailable``  the breaker gave up on it
+
+        The old implementation answered "is the breaker open", which is a
+        question about our retry policy rather than about the connector. It read
+        healthy for the first four failures of every outage and, once the breaker
+        half-opened, intermittently healthy for the rest of it.
+        """
+        health: dict[str, str] = {}
+        for name in self._sources:
+            state = self._state.get(name, ServerState())
+            if self._breaker.is_open(name):
+                health[name] = "unavailable"
+            elif not state.observed:
+                health[name] = "unknown"
+            elif state.consecutive_failures:
+                health[name] = "failing"
+            else:
+                health[name] = "ok"
+        return health
+
+    def server_details(self) -> dict[str, dict]:
+        """Health with the evidence behind it, for an operator rather than a UI.
+
+        The error is included because "tasks is failing" sends somebody to read
+        logs, and "tasks is failing: gitea unreachable" sends them to start
+        gitea.
+        """
+        health = self.server_health()
+        details = {}
+        for name, status in health.items():
+            state = self._state.get(name, ServerState())
+            details[name] = {
+                "status": status,
+                "consecutive_failures": state.consecutive_failures,
+                "last_error": state.last_error,
+            }
+        return details
 
     def degraded_servers(self) -> Iterable[str]:
-        return (name for name, status in self.server_health().items() if status != "ok")
+        """Servers with something actually wrong.
+
+        `unknown` is excluded: a connector nobody has called is not degraded, and
+        listing it would put a permanent warning on every surface in every
+        deployment that does not use all nine.
+        """
+        return (
+            name
+            for name, status in self.server_health().items()
+            if status in {"failing", "unavailable"}
+        )
