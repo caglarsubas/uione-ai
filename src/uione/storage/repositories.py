@@ -222,6 +222,36 @@ class SqlActionJournal:
         async with self._db.session() as session:
             return [_to_entry(r) for r in (await session.execute(stmt)).scalars()]
 
+    async def get(self, entry_id: str) -> JournalEntry | None:
+        async with self._db.session() as session:
+            row = await session.get(JournalRow, entry_id)
+            return _to_entry(row) if row else None
+
+    async def undoable_for(self, principal: Principal, limit: int = 20) -> list[JournalEntry]:
+        """Entries that can still be taken back.
+
+        This existed on the in-memory journal and not here, and nothing noticed
+        because nothing had called it through the durable path — so the two
+        implementations of one role had quietly diverged, and the first caller
+        got an AttributeError from production storage. `test_storage.py` now
+        asserts they answer the same questions.
+
+        Filtered in the database rather than in Python: "what can I still undo"
+        is asked of a journal that grows for the life of a deployment, and
+        loading all of it to discard most of it is a query that gets slower every
+        day it works.
+        """
+        stmt = (
+            select(JournalRow)
+            .where(JournalRow.principal_id == principal.user_id)
+            .where(JournalRow.undone.is_(False))
+            .where(JournalRow.undo_tool.is_not(None))
+            .order_by(JournalRow.at.desc())
+            .limit(limit)
+        )
+        async with self._db.session() as session:
+            return [_to_entry(r) for r in (await session.execute(stmt)).scalars()]
+
     async def mark_undone(self, entry_id: str) -> None:
         async with self._db.session() as session:
             if row := await session.get(JournalRow, entry_id):

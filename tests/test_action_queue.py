@@ -315,3 +315,38 @@ async def test_mail_reaches_the_queue_in_its_own_band() -> None:
     assert mail_item.urgency is Urgency.AWAITING_REPLY
     # And it sits below the P1, because a live incident outranks a question.
     assert queue.items[0].key == "INC0010001"
+
+
+async def test_a_p1_outranks_an_older_p2() -> None:
+    """Within "something is on fire", how badly beats how long.
+
+    Both land in the critical band, and sorting only by age put a P2 above a P1
+    because it had been open longer. Found the first time the landmark line
+    asked for "the one live P1" and was handed the wrong incident.
+    """
+    p2_older = {
+        **INCIDENT,
+        "key": "INC0010002",
+        "priority": "2",
+        "updated_at": "2026-07-01T00:00:00Z",
+    }
+    p1_newer = {
+        **INCIDENT,
+        "key": "INC0010001",
+        "priority": "1",
+        "updated_at": "2026-07-27T07:35:00Z",
+    }
+
+    queue = await build(source("incidents", "my_incidents", [p2_older, p1_newer]))
+
+    assert [i.key for i in queue.items] == ["INC0010001", "INC0010002"]
+
+
+async def test_an_item_without_a_priority_sorts_after_one_with_it() -> None:
+    """Absence of a priority is not a claim of urgency."""
+    rated = {**TICKET, "key": "TK-1", "priority": "3", "updated_at": "2026-07-27T00:00:00Z"}
+    unrated = {**TICKET, "key": "TK-2", "updated_at": "2026-07-01T00:00:00Z"}
+
+    queue = await build(source("tasks", "my_open_issues", [unrated, rated]))
+
+    assert [i.key for i in queue.items] == ["TK-1", "TK-2"]

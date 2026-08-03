@@ -332,6 +332,32 @@ async def brief(
     )
 
 
+@router.get("/me/undoable")
+async def undoable(
+    principal: Principal = Depends(get_principal),
+    services: Services = Depends(get_services),
+) -> list[dict]:
+    """What this person's assistant did that can still be taken back (G13).
+
+    Read-only. The rail exists to make the last hour visible — "a visible undo
+    window changes user psychology from fear to experimentation" — and seeing
+    that a thing *is* reversible is most of that. Performing the reversal is a
+    mutating action and goes through governance like any other; it is not a
+    button this endpoint grants.
+    """
+    entries = await services.governor.journal.undoable_for(principal)
+    return [
+        {
+            "id": e.id,
+            "tool": e.tool,
+            "risk": str(e.risk),
+            "at": e.at.isoformat(),
+            "undo_tool": e.undo_tool,
+        }
+        for e in entries
+    ]
+
+
 @router.get("/queue")
 async def action_queue(
     principal: Principal = Depends(get_principal),

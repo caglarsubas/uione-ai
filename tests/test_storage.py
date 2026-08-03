@@ -311,3 +311,37 @@ async def test_credentials_are_stripped_from_logged_urls() -> None:
         "postgresql+asyncpg://***@db.corp:5432/uione"
     )
     assert _safe_url("sqlite+aiosqlite:///./uione.db") == "sqlite+aiosqlite:///./uione.db"
+
+
+# -- the two journals must answer the same questions -----------------------
+
+
+#: What a caller may rely on from *either* journal.
+#:
+#: Written out rather than derived from the in-memory class, because that class
+#: also carries `entries` — a test-only accessor returning the whole list.
+#: Implementing that against storage would mean loading an unbounded table to
+#: answer a question no production caller asks, so it is deliberately not in the
+#: contract and the durable journal deliberately lacks it.
+JOURNAL_CONTRACT = frozenset(
+    {"record", "register_undo", "get", "recent_for", "undoable_for", "mark_undone"}
+)
+
+
+async def test_both_journals_satisfy_the_journal_contract() -> None:
+    """One role, two implementations, and they had drifted.
+
+    `undoable_for` existed on the in-memory journal and not on the durable one.
+    Nothing noticed, because nothing had called it through storage — until a UI
+    did, and got an AttributeError out of the production path.
+
+    The module docstring for repositories.py opens by claiming "each class
+    satisfies the interface its in-memory counterpart already defined". This is
+    the test that makes that sentence true rather than aspirational.
+    """
+    from uione.governance.approvals import ActionJournal
+    from uione.storage.repositories import SqlActionJournal
+
+    for journal in (ActionJournal, SqlActionJournal):
+        missing = sorted(m for m in JOURNAL_CONTRACT if not hasattr(journal, m))
+        assert not missing, f"{journal.__name__} is missing {missing}"
