@@ -452,3 +452,90 @@ a.queue-title {
 a.queue-title:hover {
   text-decoration: underline;
 }
+
+/* ---- result rows, and the link host ----------------------------------- */
+
+/* DESIGN.md's row grammar, at the sizes its type scale specifies:
+     [3px provenance spine][2-char tag][identifier, mono][chip][title][age]
+   Dense row is 28px fixed, identifiers are 12.5/16 mono and never truncate,
+   titles are what gets thrown away when the window narrows. */
+.rows {
+  margin: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.row {
+  display: grid;
+  grid-template-columns: 3px 22px auto auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  border-bottom: 1px solid var(--border);
+  /* 0px radius on rows, per the layout rules. Chips get 3px; rows get none. */
+  border-radius: 0;
+}
+/* The provenance spine. Achromatic — a row is a fact that already happened, and
+   colour in this product means consequence. */
+.row::before {
+  content: "";
+  display: block;
+  width: 3px;
+  height: 100%;
+  background: var(--border-strong);
+}
+.row-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.row-id {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 16px;
+  letter-spacing: 0.01em;
+  /* Never truncates. The title is the thing you throw away. */
+  white-space: nowrap;
+}
+.row-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.row-title {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-age {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* The host of a link whose words disagree with its destination. Muted meta, not
+   a warning: most such links are ordinary, and an alarm on every one of them is
+   an alarm nobody reads. It is there so the destination is never a secret. */
+.link-host {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+  margin-left: 4px;
+}
+.link-host::before { content: "("; }
+.link-host::after { content: ")"; }

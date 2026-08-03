@@ -254,6 +254,37 @@ function renderMarkdown(text) {
       )
       .replace(/^\s*[-*]\s+/gm, "• ")
       .replace(/^---+$/gm, "")
+      // Links. Absent until now, which is why a model writing
+      // [http://wiki.local/runbook](http://wiki.local/runbook) put both halves
+      // on screen verbatim.
+      //
+      // http and https only. The text being linkified came from a model that
+      // was summarising connector output, which is to say from whoever can file
+      // a ticket or send mail — so `javascript:` and `data:` are not schemes we
+      // hand a click target to. Anything else renders as its own text.
+      //
+      // The host is shown whenever it is not already the link text. A link whose
+      // words and destination disagree is the oldest trick there is, and this
+      // product reads attacker-authored content by design.
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (whole, label, href) => {
+        let host = "";
+        try {
+          host = new URL(href.replace(/&amp;/g, "&")).host;
+        } catch {
+          return whole;
+        }
+        const shown = label.trim();
+        const same = shown === href || shown === host || shown.startsWith(href);
+        return (
+          `<a href="${href}" target="_blank" rel="noopener noreferrer">${shown}</a>` +
+          (same ? "" : `<span class="link-host">${host}</span>`)
+        );
+      })
+      // Paragraphs. A blank line meant nothing before, so "…by Friday." and
+      // "Most critical items today:" arrived welded together.
+      .split(/\n{2,}/)
+      .map((block) => `<p>${block.replace(/\n/g, "<br>")}</p>`)
+      .join("")
   );
 }
 
@@ -383,6 +414,67 @@ async function send() {
   }
 }
 
+/* The two-character system tags from DESIGN.md's row grammar. Not icons: a tag
+   is readable at a glance in a column and an icon is not, and the row grammar
+   puts nine systems in the same skeleton so the eye learns one shape. */
+const SYSTEM_TAGS = {
+  mail: "MA",
+  chat: "CH",
+  tasks: "TK",
+  incidents: "IN",
+  claims: "CL",
+  calendar: "CA",
+  bi: "BI",
+  knowledge: "KN",
+  documents: "DO",
+};
+
+/* A row per record a tool returned, in the skeleton every fact on screen shares:
+ *
+ *   [3px provenance spine][2-char tag][identifier, mono][chip][title][age]
+ *
+ * This exists because the alternative is what the product did before: render the
+ * model's paragraph *about* what a tool found. DESIGN.md draws that line for the
+ * degradation banner — "rendered from the structured field and never from the
+ * model's prose" — and it holds for every fact, not only that one. The model
+ * retelling a ticket's state is a model that can get it wrong; the row cannot.
+ *
+ * Identifiers are mono and never truncate. Titles are what gets thrown away when
+ * the window narrows. */
+function resultRows(server, items) {
+  const wrap = el("div", "rows");
+  wrap.dataset.server = server;
+
+  for (const item of items) {
+    const row = el("div", "row");
+    row.append(el("span", "row-tag", SYSTEM_TAGS[server] || server.slice(0, 2).toUpperCase()));
+    row.append(el("span", "row-id", item.key || ""));
+
+    const state = item.state_label || item.state || item.status;
+    if (state) row.append(el("span", "row-chip", String(state)));
+
+    row.append(el("span", "row-title", item.title || ""));
+
+    // Right-aligned and never compressed, per the row grammar. Absent rather
+    // than invented when the connector did not say.
+    if (item.updated_at) row.append(el("span", "row-age", shortDate(item.updated_at)));
+
+    wrap.append(row);
+  }
+  return wrap;
+}
+
+/* Dates as an ops person says them. Never a relative "2 days ago" computed from
+   a timestamp the connector may have expressed in its own timezone — being
+   confidently wrong about when something happened is worse than being terse. */
+function shortDate(value) {
+  const text = String(value);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return text.slice(0, 16);
+  const time = text.match(/[T ](\d{2}:\d{2})/);
+  return `${match[3]}-${match[2]}` + (time ? ` ${time[1]}` : "");
+}
+
 function renderAnswer(node, text) {
   node.innerHTML = renderMarkdown(text);
 }
@@ -477,6 +569,13 @@ async function streamChat(message, { progress, answer }) {
                 : "ok",
         );
         if (payload.held) presence.set("held", "Waiting on you");
+
+        // The records themselves, above the answer. The model's prose still
+        // follows — it is doing the reasoning — but the facts are on screen in
+        // the shape the connector returned them, not the shape it retold them.
+        if (payload.items && payload.items.length) {
+          answer.parentNode.insertBefore(resultRows(payload.server, payload.items), answer);
+        }
       } else if (kind === "token") {
         // The raw text is kept and re-rendered, because markdown cannot be
         // formatted one fragment at a time — `**bo` is not bold yet.
