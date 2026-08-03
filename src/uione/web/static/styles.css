@@ -539,3 +539,32 @@ a.queue-title:hover {
 }
 .link-host::before { content: "("; }
 .link-host::after { content: ")"; }
+
+/* Links in model prose.
+   Achromatic, because DESIGN.md is unambiguous: "If a pixel is saturated,
+   something either changed a real system, is about to, or is on fire. Nothing
+   decorative gets a hue." A link is chrome. It changed nothing.
+   The affordance is the underline, which costs no colour. */
+.answer a,
+.brief-body a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--border-strong);
+}
+.answer a:hover,
+.brief-body a:hover {
+  text-decoration-color: currentColor;
+}
+
+/* Section label for a row group. Type scale: mono 11/14, 600, +0.10em, upper. */
+.rows-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding-bottom: 4px;
+}

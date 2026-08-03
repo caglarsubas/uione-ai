@@ -445,6 +445,13 @@ function resultRows(server, items) {
   const wrap = el("div", "rows");
   wrap.dataset.server = server;
 
+  // A section label, at the size the type scale gives them: mono 11/14, 600,
+  // +0.10em, uppercase. Without it the rows read as stray lines between the
+  // trace and the prose; with it they read as a block somebody put there. The
+  // count is part of the label because a group of three that says three is
+  // checkable, and one that says nothing is not.
+  wrap.append(el("div", "rows-label", `${server} ${items.length}`));
+
   for (const item of items) {
     const row = el("div", "row");
     row.append(el("span", "row-tag", SYSTEM_TAGS[server] || server.slice(0, 2).toUpperCase()));
