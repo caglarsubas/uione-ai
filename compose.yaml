@@ -102,9 +102,20 @@ services:
   # -- the real systems ----------------------------------------------------
   # Tier A: self-hostable, which is why this product verifies against them
   # rather than mocking them. See docs/VENDOR_ACCESS.md.
+  #
+  # Every one of these carries `restart: unless-stopped`, and it is not
+  # boilerplate. `app` and `mocks` had it and these did not, so a Docker Desktop
+  # restart brought back the assistant and left the estate down: the product
+  # returned looking healthy while three connectors were quietly dead, and every
+  # call to them failed with ConnectError until somebody noticed.
+  #
+  # Half an estate coming back is worse than none coming back, because none is
+  # obvious. `unless-stopped` rather than `always` so `docker compose stop`
+  # still means stop.
 
   gitea:
     image: gitea/gitea:1.24
+    restart: unless-stopped
     environment:
       GITEA__security__INSTALL_LOCK: "true"
       GITEA__database__DB_TYPE: sqlite3
@@ -122,6 +133,7 @@ services:
 
   grafana:
     image: grafana/grafana:11.6.0
+    restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: admin
       # Must match GRAFANA_PASSWORD in scripts/estate.py — the provisioner logs
@@ -143,6 +155,7 @@ services:
 
   mattermost-db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: mm
       POSTGRES_PASSWORD: mm
@@ -159,6 +172,7 @@ services:
     # NOTE: amd64-only for this tag, so on Apple silicon it boots emulated and
     # takes a minute or two. The healthcheck waits rather than assuming.
     image: mattermost/mattermost-team-edition:10.5
+    restart: unless-stopped
     depends_on:
       mattermost-db:
         condition: service_healthy
