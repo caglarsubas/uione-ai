@@ -27,6 +27,14 @@
 
   <main class="main">
 
+    <!-- The first thing the eye hits. One line, framed by the only large area of
+         empty space on the page. Holds its space when nothing is wrong: a stable
+         landmark beats a collapsing one. -->
+    <div class="landmark" id="landmark" data-state="quiet">
+      <span class="landmark-line" id="landmark-line">NOTHING ON FIRE</span>
+    </div>
+
+
     <!-- Today -->
     <section class="panel active" id="panel-brief">
       <h1>Good morning</h1>
@@ -132,6 +140,22 @@
     </section>
 
   </main>
+
+  <!-- The consequence rail. Never a modal, never collapsed by default: what the
+       assistant is waiting on, and what it has already done that can be taken
+       back, are the two things a person needs in peripheral vision at all times. -->
+  <aside class="rail">
+    <section class="rail-block">
+      <div class="rail-label">Awaiting you <span class="rail-count" id="rail-approval-count"></span></div>
+      <div id="rail-approvals"><div class="empty">Nothing waiting.</div></div>
+    </section>
+
+    <section class="rail-block">
+      <div class="rail-label">Undo window <span class="rail-count" id="rail-undo-count"></span></div>
+      <div id="rail-undo"><div class="empty">Nothing to take back.</div></div>
+    </section>
+  </aside>
+
 </div>
 <script src="/ui/app.js"></script>
 </body>

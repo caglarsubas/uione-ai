@@ -629,6 +629,69 @@ $("#composer").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
 });
 
+/* ---- the landmark line, and the consequence rail ---- */
+
+/* The one live P1, in the form an ops person would say out loud. Sourced from
+   the queue rather than recomputed: the queue already ranks and deduplicates,
+   and a second implementation of "what is most urgent" would eventually
+   disagree with the first in front of a user. */
+async function loadLandmark(queue) {
+  const node = $("#landmark");
+  const line = $("#landmark-line");
+  const burning = (queue.items || []).find((i) => i.urgency === "critical incident");
+
+  if (!burning) {
+    node.dataset.state = "quiet";
+    line.textContent = "NOTHING ON FIRE";
+    return;
+  }
+  node.dataset.state = "burning";
+  // Identifier first and never abbreviated; the title is what gets dropped.
+  line.textContent = [burning.key, burning.reason, burning.title].filter(Boolean).join(" · ");
+}
+
+/* Approvals on top, undo journal below. Both always present — the rail's whole
+   argument is that it is there without being asked for. */
+async function loadRail() {
+  const [pending, undoable] = await Promise.all([
+    api("/approvals").catch(() => []),
+    api("/me/undoable").catch(() => []),
+  ]);
+
+  const approvals = $("#rail-approvals");
+  $("#rail-approval-count").textContent = String(pending.length);
+  approvals.innerHTML = "";
+  if (!pending.length) {
+    approvals.append(el("div", "empty", "Nothing waiting."));
+  } else {
+    for (const action of pending) {
+      const item = el("div", "rail-item");
+      item.append(el("div", "rail-tool", action.tool));
+      item.append(el("div", "rail-meta", action.reason || ""));
+      item.addEventListener("click", () =>
+        document.querySelector('.nav-btn[data-panel="approvals"]').click(),
+      );
+      approvals.append(item);
+    }
+  }
+
+  const undo = $("#rail-undo");
+  $("#rail-undo-count").textContent = String(undoable.length);
+  undo.innerHTML = "";
+  if (!undoable.length) {
+    undo.append(el("div", "empty", "Nothing to take back."));
+  } else {
+    for (const entry of undoable) {
+      const item = el("div", "rail-item");
+      item.append(el("div", "rail-tool", entry.tool));
+      // What it would take back, and when it happened. Reading that something
+      // *is* reversible is most of what the undo window is for.
+      item.append(el("div", "rail-meta", `${shortDate(entry.at)} · undo: ${entry.undo_tool}`));
+      undo.append(item);
+    }
+  }
+}
+
 /* ---- queue ---- */
 
 // No model call behind this, so refreshing is cheap — which is what makes it a
@@ -642,6 +705,7 @@ async function loadQueue() {
   const container = $("#queue");
   const notices = $("#queue-notices");
   const queue = await api("/queue");
+  loadLandmark(queue);
 
   const badge = $("#queue-count");
   badge.textContent = queue.items.length || "";
@@ -914,6 +978,11 @@ async function boot() {
   loadBrief();
   loadApprovals().catch(() => {});
   loadSystems().catch(() => {});
+  // The rail and the landmark are not tied to a panel: they are the two things
+  // that must be true on every screen, so they load once at boot and refresh
+  // after anything that could change them.
+  loadRail().catch(() => {});
+  api("/queue").then(loadLandmark).catch(() => {});
   // The tiles are built from what this deployment actually has, so a workspace
   // with no chat connector shows no chat tile rather than one that can never
   // light up.

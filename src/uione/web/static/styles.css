@@ -99,7 +99,20 @@ b, strong { font-weight: 600; }
 
 /* ---- shell ---- */
 
-.app { display: grid; grid-template-columns: 216px minmax(0, 1fr); min-height: 100vh; }
+/* Three fixed zones, no floating anything: 216px text nav, fluid centre, and a
+   360px consequence rail that is always present. The rail collapses below
+   1180px because a 360px column on a laptop leaves the centre narrower than the
+   640px measure the type scale needs — and a cramped centre is a worse failure
+   than a missing rail. */
+.app {
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr) 360px;
+  min-height: 100vh;
+}
+@media (max-width: 1180px) {
+  .app { grid-template-columns: 216px minmax(0, 1fr); }
+  .rail { display: none; }
+}
 
 .sidebar {
   border-right: 1px solid var(--border);
@@ -149,7 +162,9 @@ b, strong { font-weight: 600; }
   color: var(--text-faint);
 }
 
-.main { padding: 20px 24px 48px; max-width: 1180px; }
+/* 640–860px of content. Wider than 860 and prose stops being readable; the
+   grid, not a max-width on the shell, is what holds it. */
+.main { padding: 20px 24px 48px; max-width: 860px; }
 .panel { display: none; }
 .panel.active { display: block; }
 
@@ -568,3 +583,89 @@ a.queue-title:hover {
   color: var(--text-faint);
   padding-bottom: 4px;
 }
+
+
+/* ---- the landmark line ------------------------------------------------- */
+
+/* "A single 20px mono line at the top of the centre column, framed by the only
+   large area of empty space on the page." The empty space is the point: it is
+   what makes one line read as a headline rather than as the first row of a list. */
+.landmark {
+  padding: 24px 0 32px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+.landmark-line {
+  font-family: var(--mono);
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+/* Quiet holds its space rather than collapsing. A landmark that disappears when
+   things are fine is one you have to re-find every time they are not. */
+.landmark[data-state="quiet"] .landmark-line {
+  /* DESIGN.md calls this --text-muted; the tokens here name it --text-dim. */
+  color: var(--text-dim);
+  font-weight: 400;
+}
+/* On fire is the one place a row-level element earns saturation: it is a live P1
+   assigned to the person reading it. */
+.landmark[data-state="burning"] .landmark-line { color: var(--text); }
+.landmark[data-state="burning"] { border-bottom-color: var(--border-strong); }
+
+/* ---- the consequence rail ---------------------------------------------- */
+
+.rail {
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  padding: 20px 16px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  /* Pinned. The whole argument for a rail is that it is there without being
+     asked for; one that scrolls away with the transcript is a panel. */
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: 100vh;
+  overflow-y: auto;
+}
+.rail-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+}
+/* Tabular so counts do not jitter as they change, and zero renders rather than
+   hides — a zero is information. */
+.rail-count { font-variant-numeric: tabular-nums; }
+.rail-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.rail-item:last-child { border-bottom: 0; }
+.rail-tool {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 16px;
+  letter-spacing: 0.01em;
+}
+.rail-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+}
+/* Approvals are the one thing in the rail that is genuinely pending, so they
+   carry the amber left edge — permitted place two of three. */
+#rail-approvals .rail-item { border-left: 2px solid var(--hold); padding-left: 8px; }

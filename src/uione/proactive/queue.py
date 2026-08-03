@@ -91,6 +91,14 @@ class QueueItem:
 
     updated_at: str | None = None
     url: str | None = None
+    priority: str | None = None
+    """The source system's own priority, kept rather than folded into the band.
+
+    Two P-levels share the critical band, and discarding which is which meant a
+    P2 could outrank a P1 by being older — visible the first time the landmark
+    line asked for "the one live P1" and got the wrong incident.
+    """
+
     action_id: str | None = None
     """Set when the item is an approval, so the client can act on it directly."""
 
@@ -101,11 +109,16 @@ class QueueItem:
     def sort_key(self) -> tuple:
         """Ordered facts, not a score.
 
-        Urgency first, then how long it has been waiting — oldest first, because
-        an item that has been ignored for three days is the one most likely to
-        have been forgotten rather than deliberately deferred.
+        Urgency band first. Then the source system's priority, so a P1 outranks
+        a P2 that has been open longer — within "something is on fire", how badly
+        beats how long. Then age, oldest first, because an item ignored for three
+        days is likelier forgotten than deliberately deferred.
+
+        An item with no priority sorts after those that have one rather than
+        before: absence of a priority is not a claim of urgency.
         """
-        return (int(self.urgency), self.updated_at or "")
+        priority = int(self.priority) if (self.priority or "").isdigit() else 99
+        return (int(self.urgency), priority, self.updated_at or "")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -116,6 +129,7 @@ class QueueItem:
             "sources": self.sources,
             "updated_at": self.updated_at,
             "url": self.url,
+            "priority": self.priority,
             "action_id": self.action_id,
             "cross_system": self.cross_system,
         }
@@ -286,6 +300,7 @@ def _row_to_item(row: dict, tool: str, urgency: Urgency, reason: str) -> QueueIt
         sources=[server],
         updated_at=row.get("updated_at"),
         url=row.get("url"),
+        priority=priority or None,
     )
 
 

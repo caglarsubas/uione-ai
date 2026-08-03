@@ -335,3 +335,68 @@ every one is an alarm nobody reads. The destination is simply never a secret.
 
 **Paragraphs.** A blank line meant nothing, so "…by Friday." and "Most critical
 items today:" arrived welded together.
+
+## The three zones
+
+`DESIGN.md` specifies three fixed zones and the workspace had two. The third is
+now built.
+
+**Left rail, 216px.** Text nav, unchanged.
+
+**Centre, 640–860px.** Capped at 860 rather than 1180: past that, prose stops
+being readable and the row grammar stops scanning.
+
+**Right rail, 360px, pinned, always present.** Approvals on top, undo journal
+below — "never a modal, never collapsed by default". The argument for a rail is
+that it is there without being asked for; one that scrolls away with the
+transcript is a panel with extra steps.
+
+It collapses below 1180px, and that is a choice rather than an oversight: a
+360px column on a laptop leaves the centre narrower than the 640px measure the
+type scale needs, and a cramped centre is a worse failure than a missing rail.
+
+## The landmark line
+
+A single 20px mono line at the top of the centre column, framed by the only large
+area of empty space on the page:
+
+```
+INC0010001 · P1 incident assigned to you · Card settlement delayed for 2,300…
+```
+
+and when nothing is wrong, holding its space rather than collapsing:
+
+```
+NOTHING ON FIRE
+```
+
+A landmark that disappears when things are fine is one you have to re-find every
+time they are not.
+
+It reads from `/queue` rather than recomputing urgency. The queue already ranks
+and deduplicates; a second implementation of "what is most urgent" would
+eventually disagree with the first in front of a user.
+
+### What building it found
+
+The queue ranked a **P2 above a P1**. Both land in the critical band, and within
+a band it sorted oldest-first — so an older P2 outranked a live P1. Nothing had
+noticed, because until something asked for "the one live P1" the band alone was
+enough.
+
+Priority is now kept on the item and sorts within the band: how badly beats how
+long. An item with no priority sorts *after* those that have one, because the
+absence of a priority is not a claim of urgency.
+
+## The undo window
+
+`GET /me/undoable`, read-only. Seeing that something *is* reversible is most of
+what the undo window is for (G13) — performing the reversal is a mutating action
+and goes through governance like any other, not a button this endpoint grants.
+
+Building it found that `SqlActionJournal` — the durable journal, the one every
+real deployment uses — **did not implement `undoable_for` at all**. Only the
+in-memory one did. `repositories.py` opens by claiming each class "satisfies the
+interface its in-memory counterpart already defined"; that sentence was
+aspirational, and the first caller through the durable path got an
+`AttributeError`. There is now a contract test.
