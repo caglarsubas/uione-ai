@@ -114,3 +114,39 @@ def test_the_makefile_and_compose_agree_on_the_default_port() -> None:
     published = re.search(r"\$\{UIONE_HTTP_PORT:-(\d+)\}", compose).group(1)
 
     assert declared == published
+
+
+def test_compose_migrates_itself_like_the_chart_does() -> None:
+    """Compose runs one app container against one SQLite file, which is the same
+    single-writer case the Helm chart auto-upgrades for.
+
+    Without this, a `git pull` that carries a migration turns `make up` into a
+    crash loop whose remedy is only visible to somebody who thinks to run
+    `docker logs`. It happened: the container sat in `Restarting (3)` with
+
+        the database schema is at 31c0a9d5e318 but this build needs 293397191fe9
+
+    scrolling past every ten seconds. The startup check is right to refuse a
+    schema it cannot run — it should not be the first thing a developer meets
+    after updating.
+    """
+    import yaml
+
+    app = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]["app"]
+    environment = app["environment"]
+
+    assert str(environment["UIONE_DB_AUTO_UPGRADE"]) in {"1", "true", "True"}
+    # And it is the single-writer case that justifies it.
+    assert "sqlite" in environment["UIONE_DATABASE_URL"]
+
+
+def test_compose_and_the_chart_agree_about_who_migrates() -> None:
+    """Both run one writer against SQLite, so both migrate in place. If the chart
+    ever stops doing that, compose is relying on reasoning that no longer holds.
+    """
+    helpers = (ROOT / "deploy" / "helm" / "uione" / "templates" / "_helpers.tpl").read_text()
+
+    assert (
+        'UIONE_DB_AUTO_UPGRADE\n  value: {{ eq (include "uione.isSqlite" .) "true" | quote }}'
+        in (helpers)
+    )

@@ -91,3 +91,31 @@ without exporting anything.
 operator upgrading an air-gapped install has the image they were given and
 nothing else; migrations that live only in the source tree are migrations they
 cannot run.
+
+
+## Who runs them, per deployment
+
+| Path | Migrates | Why |
+|---|---|---|
+| `make up` / compose | the app, on start | one container, one volume, one SQLite file — provably one writer |
+| Helm, SQLite profile | the pod, on start | same reasoning; every configuration with more than one pod is refused |
+| Helm, PostgreSQL | a `pre-install,pre-upgrade` Job | many pods would race, so exactly one migrates before any of them start |
+| bare `make run` | you | `UIONE_DB_AUTO_UPGRADE` is off by default and stays off |
+
+The default is off, and it should be: two replicas starting together would both
+migrate, and a migration that goes badly takes production with it before anybody
+has read it. What each deployment does is decide whether that risk exists *for
+it*, and say so explicitly rather than inherit a default that was chosen for a
+different shape.
+
+Compose did not, for a while. The result was that any `git pull` carrying a
+migration turned `make up` into a crash loop:
+
+```
+uione-app-1   Restarting (3) 32 seconds ago
+```
+
+with the actual reason — `the database schema is at 31c0a9d5e318 but this build
+needs 293397191fe9` — visible only to somebody who thought to run `docker logs`.
+The startup check is right to refuse a schema it cannot run. It should not be
+the first thing a developer meets after updating.
