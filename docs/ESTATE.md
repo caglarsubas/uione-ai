@@ -119,3 +119,37 @@ The identifiers are deliberately in each system's **native format** — Gitea's
 `owner/repo#n`, ServiceNow's `INC` plus seven digits — because a mock that
 invents a tidier scheme teaches a connector to parse something the vendor never
 sends.
+
+
+## When half the estate is missing
+
+Every service in both compose files carries `restart: unless-stopped`, and that
+is a fix rather than boilerplate.
+
+`app` and `mocks` had it; gitea, grafana and mattermost did not. A Docker Desktop
+restart therefore brought back the assistant and left the real systems down. The
+product returned **looking healthy** — the workspace loaded, the brief rendered,
+mail and calendar and incidents all answered from fixtures — while every call to
+tasks, chat and BI failed with `ConnectError`.
+
+Half an estate coming back is worse than none coming back, because none is
+obvious and half is not.
+
+`unless-stopped` rather than `always`, so `docker compose stop` still means stop.
+
+If you see it anyway — `tasks`, `chat` and `dashboards` red together is the
+signature — the three are Gitea, Mattermost and Grafana:
+
+```bash
+docker compose ps -a
+```
+
+```bash
+make up && make provision && docker compose restart app
+```
+
+`/system/health` names which connectors are failing and why. It reports a
+connector as `failing` on its **first** failed call rather than its fifth, and
+`unknown` for one nothing has called yet — see
+[OPERATIONS.md](OPERATIONS.md#connector-health) for why that distinction is the
+whole point.

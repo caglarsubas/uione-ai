@@ -52,3 +52,34 @@ def test_estate_ports_avoid_the_usual_developer_collisions() -> None:
     assert "127.0.0.1:3300:3000" in compose
     assert "127.0.0.1:3400:3000" in compose
     assert '\n      - "3000:3000"' not in compose
+
+
+def test_every_estate_service_restarts_itself() -> None:
+    """A Docker Desktop restart must not leave half an estate running.
+
+    Found from a screenshot of the product: `app` and `mocks` carried
+    `restart: unless-stopped` and gitea, grafana and mattermost did not. The
+    daemon went away overnight, the assistant came back, and three connectors
+    stayed dead — so the product returned *looking healthy* while every call to
+    a third of the estate failed with ConnectError.
+
+    Half an estate coming back is worse than none coming back, because none is
+    obvious and half is not.
+    """
+    import yaml
+
+    for path in (ROOT / "compose.yaml", ROOT / "estate" / "docker-compose.yml"):
+        services = yaml.safe_load(path.read_text())["services"]
+        missing = sorted(n for n, s in services.items() if s.get("restart") != "unless-stopped")
+
+        assert not missing, f"{path.name}: {missing} would not come back after a daemon restart"
+
+
+def test_the_policy_is_unless_stopped_rather_than_always() -> None:
+    """`docker compose stop` must still mean stop. `always` would fight the
+    operator, which is how a demo estate becomes something people kill by hand."""
+    import yaml
+
+    services = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]
+
+    assert {s.get("restart") for s in services.values()} == {"unless-stopped"}
