@@ -29,7 +29,8 @@ estate:
 # --- running the whole product in containers ---------------------------------
 
 # The UI, immediately: app + mocked vendors + the real systems, on :8000.
-UIONE_HTTP_PORT ?= 8000
+# 8800, not 8000 — see the comment on the port mapping in compose.yaml.
+UIONE_HTTP_PORT ?= 8800
 
 up:
 	UIONE_HTTP_PORT=$(UIONE_HTTP_PORT) docker compose up -d --build

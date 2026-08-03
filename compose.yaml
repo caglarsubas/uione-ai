@@ -66,9 +66,15 @@ services:
       # that follows says nothing about why.
       - ./estate:/run/estate:ro
     ports:
-      # Overridable, because 8000 is the most contested port on any developer's
-      # machine: UIONE_HTTP_PORT=8080 docker compose up -d
-      - "127.0.0.1:${UIONE_HTTP_PORT:-8000}:8000"
+      # 8800 rather than 8000, for the same reason the estate publishes Gitea on
+      # 3300 rather than 3000: the obvious port is the contested one. 8000 is the
+      # default of uvicorn, Django, and half the services on any working
+      # machine — and the collision does not fail with "something else is using
+      # 8000", it fails with a wall of compose output ending in `bind: address
+      # already in use`, which reads as a bug in this project.
+      #
+      # The container still listens on 8000; only what is published moves.
+      - "127.0.0.1:${UIONE_HTTP_PORT:-8800}:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

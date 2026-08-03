@@ -83,3 +83,34 @@ def test_the_policy_is_unless_stopped_rather_than_always() -> None:
     services = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]
 
     assert {s.get("restart") for s in services.values()} == {"unless-stopped"}
+
+
+def test_the_app_port_avoids_the_usual_developer_collisions() -> None:
+    """The same reasoning as the estate ports above, applied to the app.
+
+    That test has existed since the estate shipped, and the app was never
+    covered by it — while `compose.yaml` carried a comment calling 8000 "the
+    most contested port on any developer's machine" and then defaulted to it.
+
+    It cost a real afternoon: `docker compose up -d` collided with an unrelated
+    service on 8000 and failed with a wall of build output ending in `bind:
+    address already in use`, which reads as a bug in this project rather than as
+    two things wanting one port.
+    """
+    compose = (ROOT / "compose.yaml").read_text()
+
+    assert "${UIONE_HTTP_PORT:-8800}:8000" in compose
+    assert ":-8000}" not in compose, "the published default is the contested port again"
+
+
+def test_the_makefile_and_compose_agree_on_the_default_port() -> None:
+    """Otherwise `make up` prints a URL that nothing is listening on."""
+    import re
+
+    makefile = (ROOT / "Makefile").read_text()
+    compose = (ROOT / "compose.yaml").read_text()
+
+    declared = re.search(r"UIONE_HTTP_PORT \?= (\d+)", makefile).group(1)
+    published = re.search(r"\$\{UIONE_HTTP_PORT:-(\d+)\}", compose).group(1)
+
+    assert declared == published
