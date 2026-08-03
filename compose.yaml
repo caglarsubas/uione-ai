@@ -39,6 +39,21 @@ services:
       UIONE_ENVIRONMENT: dev
       UIONE_AUTH_MODE: dev
       UIONE_DATABASE_URL: sqlite+aiosqlite:////data/uione.db
+
+      # Migrate on start, for the same reason the Helm chart does on its SQLite
+      # profile: there is provably **one** writer. One app container, one volume,
+      # one file — so the race `db_auto_upgrade` defaults off for, where two
+      # replicas both migrate, cannot happen here.
+      #
+      # Without it, any `git pull` that carries a migration turns `make up` into
+      # a crash loop, and the remedy is only visible to somebody who thinks to
+      # run `docker logs`. The startup check is right to refuse a schema it
+      # cannot run; it should not be the *first* thing a developer meets after
+      # updating.
+      #
+      # Production deployments use the chart, which decides this per profile and
+      # runs a pre-upgrade Job wherever there is more than one pod.
+      UIONE_DB_AUTO_UPGRADE: "1"
       UIONE_MODEL_PLANE_URL: ${UIONE_MODEL_PLANE_URL:-http://host.docker.internal:11434/v1}
       UIONE_MODEL_TIER_TRIAGE: ${UIONE_MODEL_TIER_TRIAGE:-ministral-3:8b}
       UIONE_MODEL_TIER_WORKHORSE: ${UIONE_MODEL_TIER_WORKHORSE:-ministral-3:8b}
