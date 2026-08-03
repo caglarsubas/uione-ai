@@ -29,6 +29,11 @@ from uione.modelplane.admission import ModelPlaneBusy
 
 log = structlog.get_logger(__name__)
 
+#: Rows streamed to a client per tool result. A queue is a list of titles, and a
+#: transcript that carries eighty of them is a backlog nobody reads — the same
+#: bound, for the same reason, as the connectors' own list limits.
+ROWS_PER_RESULT = 8
+
 DEFAULT_SYSTEM_PROMPT = """You are UiOne, an enterprise assistant working inside \
 the user's own systems.
 
@@ -353,6 +358,20 @@ class AgentRuntime:
                         # more than "mail ✓", and it comes from the structured
                         # field rather than being counted out of prose.
                         "count": structured.get("count"),
+                        # The rows themselves, when the connector returns them.
+                        #
+                        # Without this a client can only render the model's prose
+                        # *about* what a tool found, which is how a product whose
+                        # connectors return typed records ends up looking like a
+                        # chat log. DESIGN.md already draws this line for the
+                        # degradation banner — "rendered from the structured
+                        # field and never from the model's prose" — and it holds
+                        # for every fact on screen, not only that one.
+                        #
+                        # Bounded, because a tool that found eighty things must
+                        # not put eighty rows through the event stream and into
+                        # a transcript. The count above stays authoritative.
+                        "items": (structured.get("items") or [])[:ROWS_PER_RESULT],
                         # Whether this result put untrusted content into the
                         # context window. Emitted so the conversation store can
                         # mark the turn: taint outlives the run, because the

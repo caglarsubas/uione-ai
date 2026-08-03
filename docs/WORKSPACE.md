@@ -282,3 +282,56 @@ action **is**. [DESIGN.md](../DESIGN.md) permits amber in exactly three places
 and one of them is the left edge of a held action; "how many things await you"
 is ordinary work rather than consequence, and a second amber number in the same
 sidebar would spend the signature on nothing.
+
+## Facts as rows, prose as prose
+
+A tool result now reaches the client as records, not only as a count, and the
+client renders them in the row grammar from [DESIGN.md](../DESIGN.md):
+
+```
+[3px spine][2-char tag][identifier, mono][chip][title, truncates][age, right]
+
+ IN  INC0010001  IN PROGRESS  Card settlement delayed for 2,300…   26-07 23:30
+ IN  INC0010002  ON HOLD      Refund API returning 500 for mer…    27-07 08:00
+```
+
+The model's answer still follows — it is doing the reasoning — but the *facts*
+are on screen in the shape the connector returned them rather than the shape the
+model retold them in.
+
+That line is already drawn in DESIGN.md for the degradation banner: "rendered
+from the structured field and never from the model's prose". It holds for every
+fact on screen, not only that one. A model retelling a ticket's state is a model
+that can get it wrong, and `docs/EVALS.md` records it doing exactly that with
+dates. A row cannot.
+
+Identifiers are mono and never truncate; titles are what gets thrown away when
+the window narrows. Ages come from the connector's own timestamp and are never
+rendered as "2 days ago" — being confidently wrong about when something happened
+is worse than being terse.
+
+Bounded at eight rows per result. A transcript carrying eighty is a backlog.
+
+## Two things the renderer could not do
+
+**Links.** There was no rule for `[text](url)`, so a model writing
+`[http://wiki.local/runbook](http://wiki.local/runbook)` put both halves on
+screen verbatim.
+
+Now rendered, `http` and `https` only. The text being linkified came from a model
+summarising connector output — which is to say from whoever can file a ticket or
+send mail — so `javascript:` and `data:` do not become click targets.
+
+**And the host is shown whenever it disagrees with the link text.** A link whose
+words and destination differ is the oldest trick there is, and this product reads
+attacker-authored content by design:
+
+```
+Click your bank (evil.example) now
+```
+
+Muted meta rather than a warning: most such links are ordinary, and an alarm on
+every one is an alarm nobody reads. The destination is simply never a secret.
+
+**Paragraphs.** A blank line meant nothing, so "…by Friday." and "Most critical
+items today:" arrived welded together.
