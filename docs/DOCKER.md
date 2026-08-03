@@ -1,7 +1,7 @@
 # Running the whole product in containers
 
 ```bash
-make up          # everything, UI on http://127.0.0.1:8000/
+make up          # everything, UI on http://127.0.0.1:8800/
 ```
 
 That is enough to use the assistant. Incidents and claims come from the mocked
@@ -70,7 +70,7 @@ compose file; the bug was that it took ten minutes to see.
 
 | | |
 |---|---|
-| UiOne | http://127.0.0.1:8000/ |
+| UiOne | http://127.0.0.1:8800/ |
 | Gitea | http://127.0.0.1:3300/ |
 | Grafana | http://127.0.0.1:3400/ (admin / uione-dev-pw) |
 | Mattermost | http://127.0.0.1:8065/ |
@@ -78,3 +78,25 @@ compose file; the bug was that it took ten minutes to see.
 
 Everything binds to 127.0.0.1. None of it should be reachable from the network
 while it holds demo credentials.
+
+
+## The published port
+
+`make up` publishes the workspace on **8800**, not 8000, and the container still
+listens on 8000 internally — only what is published moves.
+
+8000 is the default of uvicorn, of Django, and of half the services running on
+any working machine. The collision does not announce itself: `docker compose up`
+fails with a wall of build output ending in `bind: address already in use`, which
+reads as a bug in this project rather than as two things wanting one port.
+
+The estate already made this decision — Gitea is on 3300 rather than 3000, for
+exactly this reason — and the app had simply never been covered by it, while
+`compose.yaml` carried a comment calling 8000 "the most contested port on any
+developer's machine" and then defaulted to it.
+
+Override with `UIONE_HTTP_PORT`:
+
+```bash
+UIONE_HTTP_PORT=9000 docker compose up -d
+```
