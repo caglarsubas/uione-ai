@@ -235,10 +235,24 @@ h1 { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.02
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   padding: 4px 6px; color: var(--text-dim); white-space: nowrap;
 }
-.chip.ok { color: var(--ok); border-color: var(--ok); background: var(--ok-tint); }
+/* A source that answered is the ordinary case, and the ordinary case does not
+   get a hue.
+
+   These are provenance chips — "bi: bi.firing_alerts" says which tool produced
+   a section of a *read-only* brief. Nothing changed a real system. Rendering
+   seven of them in saturated green made the unremarkable case the loudest thing
+   on the page and left `.chip.bad` competing with a field of green for
+   attention, which is the exact failure DESIGN.md's colour rule exists to
+   prevent: "amber stays legible as a siren after eight hours instead of
+   becoming wallpaper".
+   Achromatic. `.bad` and `.held` below keep their colour, because a source that
+   failed and an action that is waiting on a human are both consequences. */
+.chip.ok { color: var(--text-dim); border-color: var(--border-strong); }
 .chip.bad { color: var(--crit); border-color: var(--crit); background: var(--crit-tint); }
 .chip.held { color: var(--hold); border-color: var(--hold); background: var(--hold-tint); }
-.chip.link { color: var(--prov); border-color: var(--prov); }
+/* Provenance, not consequence: this says two records are the same thing, which
+   is an observation about the world rather than a change to it. */
+.chip.link { color: var(--text-dim); border-color: var(--border-strong); }
 
 /* Taint and degradation are texture, not a fourth alarm colour. Hatching also
    survives greyscale printing and colour-blind users, which the CISO's
