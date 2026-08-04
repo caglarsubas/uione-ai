@@ -109,10 +109,12 @@ b, strong { font-weight: 600; }
   grid-template-columns: 216px minmax(0, 1fr) 360px;
   min-height: 100vh;
 }
-@media (max-width: 1180px) {
-  .app { grid-template-columns: 216px minmax(0, 1fr); }
-  .rail { display: none; }
-}
+/* Responsive rules live at the END of this file, not here. A media query adds
+   no specificity, so `@media { .rail { display: none } }` written above the
+   `.rail` block loses to it on source order and silently does nothing — which
+   is exactly what happened: the rail never collapsed, and a 390px viewport got
+   121px of horizontal scroll with the centre column squeezed to three words a
+   line. See "responsive" at the bottom. */
 
 .sidebar {
   border-right: 1px solid var(--border);
@@ -233,10 +235,24 @@ h1 { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.02
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   padding: 4px 6px; color: var(--text-dim); white-space: nowrap;
 }
-.chip.ok { color: var(--ok); border-color: var(--ok); background: var(--ok-tint); }
+/* A source that answered is the ordinary case, and the ordinary case does not
+   get a hue.
+
+   These are provenance chips — "bi: bi.firing_alerts" says which tool produced
+   a section of a *read-only* brief. Nothing changed a real system. Rendering
+   seven of them in saturated green made the unremarkable case the loudest thing
+   on the page and left `.chip.bad` competing with a field of green for
+   attention, which is the exact failure DESIGN.md's colour rule exists to
+   prevent: "amber stays legible as a siren after eight hours instead of
+   becoming wallpaper".
+   Achromatic. `.bad` and `.held` below keep their colour, because a source that
+   failed and an action that is waiting on a human are both consequences. */
+.chip.ok { color: var(--text-dim); border-color: var(--border-strong); }
 .chip.bad { color: var(--crit); border-color: var(--crit); background: var(--crit-tint); }
 .chip.held { color: var(--hold); border-color: var(--hold); background: var(--hold-tint); }
-.chip.link { color: var(--prov); border-color: var(--prov); }
+/* Provenance, not consequence: this says two records are the same thing, which
+   is an observation about the world rather than a change to it. */
+.chip.link { color: var(--text-dim); border-color: var(--border-strong); }
 
 /* Taint and degradation are texture, not a fourth alarm colour. Hatching also
    survives greyscale printing and colour-blind users, which the CISO's
@@ -595,13 +611,36 @@ a.queue-title:hover {
   border-bottom: 1px solid var(--border);
   margin-bottom: 24px;
 }
+/* One line. DESIGN.md is specific — "a single 20px mono line at the top of the
+   centre column" — and it wrapped to two at 1280px, which turns a landmark into
+   a paragraph and moves everything below it down by 26px depending on how long
+   the incident title happens to be.
+
+   The identifier and the reason are laid out as their own columns so they never
+   compress; the title is the last cell and is the thing that truncates. That is
+   the row grammar's rule ("identifiers and ages never compress; titles are what
+   you throw away when the window narrows") applied to the one line that matters
+   most. */
 .landmark-line {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 0 8px;
+  align-items: baseline;
   font-family: var(--mono);
   font-size: 20px;
   line-height: 26px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
+.landmark-line > * { white-space: nowrap; }
+.landmark-line .landmark-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+/* Quiet is one cell, so it does not inherit the three-column grid. */
+.landmark[data-state="quiet"] .landmark-line { display: block; }
 /* Quiet holds its space rather than collapsing. A landmark that disappears when
    things are fine is one you have to re-find every time they are not. */
 .landmark[data-state="quiet"] .landmark-line {
@@ -669,3 +708,41 @@ a.queue-title:hover {
 /* Approvals are the one thing in the rail that is genuinely pending, so they
    carry the amber left edge — permitted place two of three. */
 #rail-approvals .rail-item { border-left: 2px solid var(--hold); padding-left: 8px; }
+
+
+/* ---- responsive -------------------------------------------------------- */
+/* Last in the file on purpose: media queries carry no extra specificity, so
+   these have to come after the rules they override. */
+
+/* Below 1180px the rail goes. A 360px column leaves the centre narrower than
+   the 640px measure the type scale needs, and a cramped centre is a worse
+   failure than a missing rail — the rail's contents are still reachable from
+   the nav. */
+@media (max-width: 1180px) {
+  .app { grid-template-columns: 216px minmax(0, 1fr); }
+  .rail { display: none; }
+}
+
+/* Below 900px the left rail stops being a column. 216px of a 390px screen is
+   more than half the width spent on navigation, which leaves the centre at
+   ~90px — three words per line, and every identifier wrapping mid-token.
+   Identifiers never truncate, so a column that narrow does not degrade, it
+   breaks. */
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 8px;
+  }
+  .nav-btn { white-space: nowrap; }
+  /* The wordmark and the signed-in line are the two things worth losing first:
+     one is decoration once you are inside, the other is in the transparency
+     page. */
+  .sidebar-foot { display: none; }
+  .main { padding: 16px 16px 48px; }
+}
