@@ -611,13 +611,36 @@ a.queue-title:hover {
   border-bottom: 1px solid var(--border);
   margin-bottom: 24px;
 }
+/* One line. DESIGN.md is specific — "a single 20px mono line at the top of the
+   centre column" — and it wrapped to two at 1280px, which turns a landmark into
+   a paragraph and moves everything below it down by 26px depending on how long
+   the incident title happens to be.
+
+   The identifier and the reason are laid out as their own columns so they never
+   compress; the title is the last cell and is the thing that truncates. That is
+   the row grammar's rule ("identifiers and ages never compress; titles are what
+   you throw away when the window narrows") applied to the one line that matters
+   most. */
 .landmark-line {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 0 8px;
+  align-items: baseline;
   font-family: var(--mono);
   font-size: 20px;
   line-height: 26px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
+.landmark-line > * { white-space: nowrap; }
+.landmark-line .landmark-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+/* Quiet is one cell, so it does not inherit the three-column grid. */
+.landmark[data-state="quiet"] .landmark-line { display: block; }
 /* Quiet holds its space rather than collapsing. A landmark that disappears when
    things are fine is one you have to re-find every time they are not. */
 .landmark[data-state="quiet"] .landmark-line {

@@ -646,8 +646,13 @@ async function loadLandmark(queue) {
     return;
   }
   node.dataset.state = "burning";
-  // Identifier first and never abbreviated; the title is what gets dropped.
-  line.textContent = [burning.key, burning.reason, burning.title].filter(Boolean).join(" · ");
+  // Three cells rather than one joined string, so the identifier and the reason
+  // hold their width and only the title truncates. Joined text wraps as a
+  // paragraph, which is what it was doing.
+  line.textContent = "";
+  line.append(el("span", "landmark-id", burning.key));
+  line.append(el("span", "landmark-reason", `· ${burning.reason}`));
+  if (burning.title) line.append(el("span", "landmark-title", `· ${burning.title}`));
 }
 
 /* Approvals on top, undo journal below. Both always present — the rail's whole
