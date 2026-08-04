@@ -109,10 +109,12 @@ b, strong { font-weight: 600; }
   grid-template-columns: 216px minmax(0, 1fr) 360px;
   min-height: 100vh;
 }
-@media (max-width: 1180px) {
-  .app { grid-template-columns: 216px minmax(0, 1fr); }
-  .rail { display: none; }
-}
+/* Responsive rules live at the END of this file, not here. A media query adds
+   no specificity, so `@media { .rail { display: none } }` written above the
+   `.rail` block loses to it on source order and silently does nothing — which
+   is exactly what happened: the rail never collapsed, and a 390px viewport got
+   121px of horizontal scroll with the centre column squeezed to three words a
+   line. See "responsive" at the bottom. */
 
 .sidebar {
   border-right: 1px solid var(--border);
@@ -669,3 +671,41 @@ a.queue-title:hover {
 /* Approvals are the one thing in the rail that is genuinely pending, so they
    carry the amber left edge — permitted place two of three. */
 #rail-approvals .rail-item { border-left: 2px solid var(--hold); padding-left: 8px; }
+
+
+/* ---- responsive -------------------------------------------------------- */
+/* Last in the file on purpose: media queries carry no extra specificity, so
+   these have to come after the rules they override. */
+
+/* Below 1180px the rail goes. A 360px column leaves the centre narrower than
+   the 640px measure the type scale needs, and a cramped centre is a worse
+   failure than a missing rail — the rail's contents are still reachable from
+   the nav. */
+@media (max-width: 1180px) {
+  .app { grid-template-columns: 216px minmax(0, 1fr); }
+  .rail { display: none; }
+}
+
+/* Below 900px the left rail stops being a column. 216px of a 390px screen is
+   more than half the width spent on navigation, which leaves the centre at
+   ~90px — three words per line, and every identifier wrapping mid-token.
+   Identifiers never truncate, so a column that narrow does not degrade, it
+   breaks. */
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 8px;
+  }
+  .nav-btn { white-space: nowrap; }
+  /* The wordmark and the signed-in line are the two things worth losing first:
+     one is decoration once you are inside, the other is in the transparency
+     page. */
+  .sidebar-foot { display: none; }
+  .main { padding: 16px 16px 48px; }
+}
