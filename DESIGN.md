@@ -87,9 +87,9 @@ sans stack is.
 |---|---|---|---|---|---|
 | The one thing on fire | mono | 20 / 26 | 600 | −0.01em | one line, top of centre |
 | Panel title (h1) | ui | 22 / 28 | 600 | −0.02em | |
-| Section label | mono | 11 / 14 | 600 | +0.10em | uppercase |
+| Section label | mono | 12 / 16 | 600 | +0.08em | uppercase |
 | Brief prose | ui | 14 / 21 | 400 | −0.006em | max 68ch |
-| Dense row | ui | 13 / 18 | 400 | 0 | truncates |
+| Dense row | ui | 14 / 20 | 400 | 0 | truncates |
 | **Identifier** | **mono** | 12.5 / 16 | 400 | +0.01em | **never truncates** |
 | Status / priority chip | mono | 11 / 11 | 600 | +0.06em | uppercase |
 | Numeral display | mono | 20 / 20 | 600 | −0.01em | tabular |
@@ -154,10 +154,15 @@ same semantic tokens. All text pairs clear 4.5:1; `--text` clears 14:1 in both.
 ## Spacing
 
 - **Base unit:** 8px, with a 4px sub-step.
-- **Density:** compact. Target ~44 rows of live information above the fold at
-  1440×900.
+- **Density:** compact. Target ~38 rows of live information above the fold at
+  1440×900. It was ~44 until 2026-08-04; six rows bought the row height that makes
+  this read as an application rather than a terminal, and that trade is the point
+  of the amendment.
 - **Scale:** 4 · 8 · 12 · 16 · 24 · 32 · 48
-- **Fixed heights:** header 44px · dense row 28px · approval row 36px.
+- **Fixed heights:** header 44px · dense row **32px** · approval row 36px.
+  The approval row stays at 36 deliberately: it is now only 4px taller than a
+  dense row, and if that stops reading as a distinct class it should grow to 40
+  rather than the dense row shrinking back.
 
 ## Layout
 
@@ -168,9 +173,21 @@ same semantic tokens. All text pairs clear 4.5:1; `--text` clears 14:1 in both.
 - **Centre column, fluid, 640–860px content.** The day.
 - **Right rail, 360px, pinned, always present.** The consequence rail: approvals on
   top, undo journal below. Never a modal, never collapsed by default.
-- **Border radius:** 3px maximum on chips and buttons, **0px on rows and tables**.
-- **Zero box-shadows in the entire product.** Separation is 1px hairlines and one
-  surface step.
+- **Border radius:** **3px on chips**, **6px on controls** (buttons, inputs, and
+  floating surfaces), **0px on rows and tables**. A chip keeps the tighter radius
+  because a chip is a *label*, and a label shaped like a button invites a click
+  that does nothing.
+- **One elevation, and only one.** `--shadow-float` exists for surfaces that
+  genuinely float above the page: menus, popovers, the approval expand. Never on
+  rows, cards, or the rail — those are zones, and a zone that appears to hover is
+  lying about its position. Separation everywhere else is still 1px hairlines and
+  one surface step.
+
+  This replaces "zero box-shadows in the entire product", which held until
+  2026-08-04. The rule it replaces was right about decoration and wrong about
+  hierarchy: a menu that reads as part of the page is a menu whose state the user
+  has to infer. **Nothing floats yet**, so this is a rule waiting for its first
+  surface rather than a change you can currently see.
 
 ### Row grammar
 
@@ -264,4 +281,9 @@ Recorded so a future session does not "fix" them:
 | 2026-07-28 | Memorable thing = "it acts on my real systems" | User chose it over "it already did the work"; it is the harder claim and the real differentiator — everyone ships a morning digest, almost nobody writes back into governed systems |
 | 2026-07-28 | System font stacks, no shipped webfont | User kept the strict reading of the air-gap constraint. Mono carries the identity instead, and it is the more platform-consistent stack anyway |
 | 2026-07-28 | Presence keeps a state glyph, loses the face | An independent pass argued a face is a claim of intent this product deliberately lacks; the tool tape carries more information and cannot lie |
+| 2026-08-04 | Density relaxed: dense row 28→32px, dense-row body 13/18→14/20 | The industrial thesis was sound; five numbers made it read as a terminal rather than as the instrument DESIGN.md describes. Row height is the strongest of them. Costs ~6 rows above the fold |
+| 2026-08-04 | Section labels 11/14 +0.10em → 12/16 +0.08em | Wide-tracked micro-caps are the most terminal thing on the page and the least load-bearing — no rule depends on the tracking |
+| 2026-08-04 | Control radius 6px, chips stay 3px, rows stay 0px | Buttons read sharp next to the softer surfaces they sit on. Rows keep 0px because a row is not a card, which is the row grammar's whole argument |
+| 2026-08-04 | One elevation token for floating surfaces; "zero box-shadows" retired | The old rule was right about decoration and wrong about hierarchy. Scoped to things that genuinely float, so it cannot become ambient depth |
+| 2026-08-04 | Accent colour REJECTED | Proposed a low-saturation accent for focus and selection and rejected it. Saturation means consequence is what keeps amber legible as a siren; spending that rule to look contemporary is the worst trade on offer |
 | 2026-07-28 | Identifier chip is the atom of the system | Category designs the chat bubble because chat products render prose; this product emits typed records, so the identifier gets the typographic treatment |
