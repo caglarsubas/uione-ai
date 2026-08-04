@@ -52,6 +52,16 @@
 
   /* 3px on chips and buttons. Rows and tables are square. */
   --radius: 3px;
+  /* Controls only — buttons, inputs, and floating surfaces when they arrive.
+     Chips keep --radius: a chip is a label, and a label shaped like a button
+     invites a click that does nothing. */
+  --radius-control: 6px;
+  /* The one elevation in the product, and it is spent on a single idea: a
+     surface that genuinely floats above the page says so. Menus, popovers, the
+     approval expand. Never on rows, cards, or the rail — those are zones, and a
+     zone that appears to hover is lying about its position. Nothing floats yet,
+     so this is a rule waiting for its first surface. */
+  --shadow-float: 0 4px 16px rgba(0, 0, 0, 0.14), 0 1px 3px rgba(0, 0, 0, 0.10);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -62,6 +72,9 @@
     --verbatim: #08090a;
     --border: #262a2e;
     --border-strong: #3a4147;
+    /* Deeper in dark mode: the same shadow over a near-black surface is
+       invisible, and an elevation nobody can see is decoration. */
+    --shadow-float: 0 4px 20px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
     --text: #e6e9ec;
     --text-dim: #9aa3aa;
     --text-faint: #79838a;
@@ -381,7 +394,7 @@ textarea:focus, input:focus, button:focus-visible, .nav-btn:focus-visible {
 button {
   font-family: var(--mono);
   font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
-  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-control);
   padding: 8px 14px; cursor: pointer;
   background: var(--surface); color: var(--text);
 }
@@ -499,7 +512,7 @@ a.queue-title:hover {
   grid-template-columns: 3px 22px auto auto 1fr auto;
   align-items: center;
   gap: 8px;
-  height: 28px;
+  height: 32px;
   border-bottom: 1px solid var(--border);
   /* 0px radius on rows, per the layout rules. Chips get 3px; rows get none. */
   border-radius: 0;
@@ -542,8 +555,8 @@ a.queue-title:hover {
   white-space: nowrap;
 }
 .row-title {
-  font-size: 13px;
-  line-height: 18px;
+  font-size: 14px;
+  line-height: 20px;
   color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -591,10 +604,10 @@ a.queue-title:hover {
 /* Section label for a row group. Type scale: mono 11/14, 600, +0.10em, upper. */
 .rows-label {
   font-family: var(--mono);
-  font-size: 11px;
-  line-height: 14px;
+  font-size: 12px;
+  line-height: 16px;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-faint);
   padding-bottom: 4px;
@@ -672,10 +685,10 @@ a.queue-title:hover {
 }
 .rail-label {
   font-family: var(--mono);
-  font-size: 11px;
-  line-height: 14px;
+  font-size: 12px;
+  line-height: 16px;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-faint);
   padding-bottom: 8px;
